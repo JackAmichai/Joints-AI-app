@@ -1,0 +1,6 @@
+{
+  "name": "Joints.AI",
+  "description": "Personalized physiotherapy exercise programs powered by AI, reviewed by clinicians.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
