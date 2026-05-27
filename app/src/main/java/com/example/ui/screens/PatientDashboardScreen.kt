@@ -1,12 +1,14 @@
 package com.example.ui.screens
 
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -25,6 +27,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -35,13 +38,17 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
+import com.example.data.api.ChatMessage
 import com.example.data.api.VideoAnalysisResponse
 import com.example.data.model.Exercise
 import com.example.data.model.ExerciseProgram
 import com.example.data.model.ExerciseProgress
+import com.example.data.model.UserAssessment
 import com.example.ui.theme.*
 import com.example.ui.viewmodel.RehabViewModel
+import com.example.utils.RecoveryReportGenerator
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -56,24 +63,49 @@ fun PatientDashboardScreen(
     val programs by viewModel.programs.collectAsState()
     val activeProgram by viewModel.activeProgram.collectAsState()
     val logs by viewModel.progressHistory.collectAsState()
+    val assessments by viewModel.assessments.collectAsState()
 
     var selectedTab by remember { mutableStateOf(0) }
-    val tabs = listOf("My Plan", "AI Video Lab", "Rehab Progress Logs", "AI Support Chat")
+    val tabs = listOf("My Plan", "AI Video Lab", "AI Chat", "History")
 
     var playingExercise by remember { mutableStateOf<Exercise?>(null) }
+    val context = LocalContext.current
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Patient Space", color = TextTitle, fontWeight = FontWeight.Bold) },
+                title = { Text("Recovery Hub", color = TextTitle, fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(imageVector = Icons.Default.Close, contentDescription = "Close", tint = TextTitle)
                     }
                 },
                 actions = {
-                    IconButton(onClick = { viewModel.clearIntakeForm() }, modifier = Modifier.testTag("reset_workflow_action")) {
-                        Icon(imageVector = Icons.Default.Refresh, contentDescription = "Reset Form", tint = MintSecondary)
+                    // Share / Export PDF
+                    IconButton(
+                        onClick = {
+                            val prog = activeProgram
+                            if (prog != null) {
+                                val assessment = assessments.find { it.id == prog.assessmentId }
+                                RecoveryReportGenerator.generateAndShare(
+                                    context = context,
+                                    program = prog,
+                                    assessment = assessment,
+                                    progressLogs = logs
+                                )
+                            } else {
+                                Toast.makeText(context, "No active program to export", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        modifier = Modifier.testTag("export_report_action")
+                    ) {
+                        Icon(imageVector = Icons.Default.Share, contentDescription = "Export Report", tint = ClinicalTeal)
+                    }
+                    IconButton(
+                        onClick = { viewModel.clearIntakeForm() },
+                        modifier = Modifier.testTag("reset_workflow_action")
+                    ) {
+                        Icon(imageVector = Icons.Default.Refresh, contentDescription = "Reset", tint = TextBody)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = SlateBg)
@@ -92,7 +124,7 @@ fun PatientDashboardScreen(
                     .fillMaxSize()
                     .padding(horizontal = 24.dp)
             ) {
-                // Header Segment
+                // Header
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -107,7 +139,7 @@ fun PatientDashboardScreen(
                             color = TextBody
                         )
                         Text(
-                            text = "Joint Recovery Hub",
+                            text = "Joint Recovery",
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Black,
                             color = TextTitle
@@ -116,7 +148,7 @@ fun PatientDashboardScreen(
 
                     Surface(
                         shape = CircleShape,
-                        color = ClinicalTeal.copy(alpha = 0.12f),
+                        color = ClinicalTealSurface,
                         modifier = Modifier.size(48.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
@@ -130,140 +162,181 @@ fun PatientDashboardScreen(
                     }
                 }
 
-                // Header Tab layout
-                TabRow(
+                // Tabs
+                ScrollableTabRow(
                     selectedTabIndex = selectedTab,
                     containerColor = Color.Transparent,
                     contentColor = ClinicalTeal,
+                    edgePadding = 0.dp,
                     indicator = { tabPositions ->
-                        TabRowDefaults.SecondaryIndicator(
-                            Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
-                            color = ClinicalTeal
-                        )
+                        if (selectedTab < tabPositions.size) {
+                            TabRowDefaults.SecondaryIndicator(
+                                Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
+                                color = ClinicalTeal,
+                                height = 3.dp
+                            )
+                        }
                     },
+                    divider = { HorizontalDivider(color = SlateBorder, thickness = 1.dp) },
                     modifier = Modifier.padding(bottom = 16.dp)
                 ) {
                     tabs.forEachIndexed { index, title ->
                         Tab(
                             selected = selectedTab == index,
                             onClick = { selectedTab = index },
-                            text = { Text(title, fontWeight = FontWeight.Bold, fontSize = 14.sp) },
+                            text = {
+                                Text(
+                                    title,
+                                    fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal,
+                                    fontSize = 13.sp
+                                )
+                            },
                             unselectedContentColor = TextBody,
                             selectedContentColor = ClinicalTeal
                         )
                     }
                 }
 
-                // Conditional view compilation
-                if (selectedTab == 0) {
-                    // --- MY PLAN TAB VIEW ---
-                    if (programs.isEmpty()) {
-                        EmptyPlanState()
-                    } else {
+                when (selectedTab) {
+                    0 -> {
+                        // MY PLAN TAB
+                        if (programs.isEmpty()) {
+                            EmptyPlanState()
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalArrangement = Arrangement.spacedBy(16.dp),
+                                contentPadding = PaddingValues(bottom = 24.dp)
+                            ) {
+                                activeProgram?.let { prog ->
+                                    item {
+                                        ClinicianOversightHeaderCard(
+                                            prog = prog,
+                                            onSkipReview = {
+                                                viewModel.approveProgram(
+                                                    programId = prog.id,
+                                                    therapistName = "Dr. Sarah Adams, DPT",
+                                                    therapistNotes = "Self-approved trial. Plan vetted for general stability drills.",
+                                                    reviewedExercises = prog.exercises
+                                                )
+                                            },
+                                            onEnterClinicianReview = {
+                                                onEnterClinicianPortalForProgram(prog.id)
+                                            }
+                                        )
+                                    }
+
+                                    item { ProgramSummaryCard(prog = prog) }
+
+                                    // AI Condition Diagnosis Card
+                                    if (prog.conditionName != null) {
+                                        item {
+                                            ConditionDiagnosisCard(
+                                                conditionName = prog.conditionName,
+                                                confidence = prog.conditionConfidence ?: 50,
+                                                explanation = prog.conditionExplanation ?: ""
+                                            )
+                                        }
+                                    }
+
+                                    // Patient Assessment Summary Card
+                                    val matchingAssessment = assessments.find { it.id == prog.assessmentId }
+                                    if (matchingAssessment != null) {
+                                        item {
+                                            PatientReportCard(assessment = matchingAssessment)
+                                        }
+                                    }
+
+                                    item {
+                                        Text(
+                                            text = "Exercises (${prog.exercises.size})",
+                                            fontWeight = FontWeight.Bold,
+                                            color = TextTitle,
+                                            fontSize = 16.sp,
+                                            modifier = Modifier.padding(top = 8.dp)
+                                        )
+                                    }
+
+                                    items(prog.exercises, key = { it.title }) { exercise ->
+                                        ExerciseDetailCard(
+                                            exercise = exercise,
+                                            onPlay = { playingExercise = exercise }
+                                        )
+                                    }
+
+                                    // Export Recovery Report Card
+                                    item {
+                                        ExportReportCard(
+                                            onExport = {
+                                                val assessment = assessments.find { it.id == prog.assessmentId }
+                                                RecoveryReportGenerator.generateAndShare(
+                                                    context = context,
+                                                    program = prog,
+                                                    assessment = assessment,
+                                                    progressLogs = logs
+                                                )
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    1 -> {
+                        // VIDEO AI LAB TAB
+                        VideoAiLabTab(viewModel = viewModel)
+                    }
+                    2 -> {
+                        // AI CHAT TAB
+                        AiChatTab(viewModel = viewModel)
+                    }
+                    3 -> {
+                        // HISTORY TAB
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
                             verticalArrangement = Arrangement.spacedBy(16.dp),
                             contentPadding = PaddingValues(bottom = 24.dp)
                         ) {
-                            // Clinician review checklist status alert card
-                            activeProgram?.let { prog ->
-                                item {
-                                    ClinicianOversightHeaderCard(
-                                        prog = prog,
-                                        onSkipReview = {
-                                            // Shortcut: Approve program locally with a generic doctor
-                                            viewModel.approveProgram(
-                                                programId = prog.id,
-                                                therapistName = "Dr. Sarah Adams, DPT",
-                                                therapistNotes = "Self-approved active trial. Plan vetted for general joint stability drills.",
-                                                reviewedExercises = prog.exercises
-                                            )
-                                        },
-                                        onEnterClinicianReview = {
-                                            onEnterClinicianPortalForProgram(prog.id)
-                                        }
-                                    )
-                                }
+                            item { WeeklyActivityChartCard(logs) }
 
-                                // Quick program specifications
-                                item {
-                                    ProgramSummaryCard(prog = prog)
-                                }
-
-                                // Interactive Exercise List queue
-                                item {
-                                    Text(
-                                        text = "Workout Exercises (${prog.exercises.size})",
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White,
-                                        fontSize = 16.sp,
-                                        modifier = Modifier.padding(top = 8.dp)
-                                    )
-                                }
-
-                                items(prog.exercises, key = { it.title }) { exercise ->
-                                    ExerciseRowItem(
-                                        exercise = exercise,
-                                        onPlay = { playingExercise = exercise }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                } else if (selectedTab == 1) {
-                    // --- VIDEO AI LAB TAB VIEW ---
-                    VideoAiLabTab(viewModel = viewModel)
-                } else if (selectedTab == 2) {
-                    // --- REHAB PROGRESS LOGS TAB VIEW ---
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
-                        contentPadding = PaddingValues(bottom = 24.dp)
-                    ) {
-                        item {
-                            WeeklyActivityChartCard(logs)
-                        }
-
-                        item {
-                            Text(
-                                text = "Workout History Logs",
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                                fontSize = 16.sp,
-                                modifier = Modifier.padding(top = 8.dp)
-                            )
-                        }
-
-                        if (logs.isEmpty()) {
                             item {
-                                Surface(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    color = SlateCard,
-                                    border = BorderStroke(1.dp, SlateBorder),
-                                    shape = RoundedCornerShape(12.dp)
-                                ) {
-                                    Text(
-                                        text = "No completed session workouts logged yet. Play an exercise to start recording achievements!",
-                                        color = TextBody,
-                                        modifier = Modifier.padding(24.dp),
-                                        textAlign = TextAlign.Center,
-                                        fontSize = 13.sp
-                                    )
-                                }
+                                Text(
+                                    text = "Workout History",
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextTitle,
+                                    fontSize = 16.sp,
+                                    modifier = Modifier.padding(top = 8.dp)
+                                )
                             }
-                        } else {
-                            items(logs) { log ->
-                                completedWorkoutRowItem(log)
+
+                            if (logs.isEmpty()) {
+                                item {
+                                    Surface(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        color = SlateCard,
+                                        border = BorderStroke(1.dp, SlateBorder),
+                                        shape = RoundedCornerShape(12.dp)
+                                    ) {
+                                        Text(
+                                            text = "No workouts logged yet. Complete an exercise to start tracking!",
+                                            color = TextBody,
+                                            modifier = Modifier.padding(24.dp),
+                                            textAlign = TextAlign.Center,
+                                            fontSize = 13.sp
+                                        )
+                                    }
+                                }
+                            } else {
+                                items(logs) { log ->
+                                    completedWorkoutRowItem(log)
+                                }
                             }
                         }
                     }
-                } else {
-                    // --- AI SUPPORT CHAT TAB VIEW ---
-                    AiSupportChatTab(viewModel = viewModel)
                 }
             }
 
-            // Interactive completion player workout sheet
+            // Exercise player dialog
             playingExercise?.let { exercise ->
                 ExercisePlayerDialog(
                     exercise = exercise,
@@ -287,7 +360,331 @@ fun PatientDashboardScreen(
     }
 }
 
-// --- Specific Sub-Composables ---
+// ─── AI CHAT TAB ───
+
+@Composable
+fun AiChatTab(viewModel: RehabViewModel) {
+    val chatMessages by viewModel.chatMessages.collectAsState()
+    val isSending by viewModel.isSendingChat.collectAsState()
+    val chatError by viewModel.chatError.collectAsState()
+
+    var inputText by remember { mutableStateOf("") }
+    val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
+
+    // Auto-scroll to bottom when new messages arrive
+    LaunchedEffect(chatMessages.size) {
+        if (chatMessages.isNotEmpty()) {
+            listState.animateScrollToItem(chatMessages.size - 1)
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        // Chat header
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 12.dp),
+            colors = CardDefaults.cardColors(containerColor = ClinicalTealSurface),
+            border = BorderStroke(1.dp, ClinicalTeal.copy(alpha = 0.2f)),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(ClinicalTeal.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.SmartToy,
+                        contentDescription = "AI",
+                        tint = ClinicalTealLight,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(14.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "AI Rehab Assistant",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = TextTitle
+                    )
+                    Text(
+                        text = "Ask about your exercises, recovery tips, or pain management",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextBody,
+                        lineHeight = 16.sp
+                    )
+                }
+                if (chatMessages.isNotEmpty()) {
+                    IconButton(
+                        onClick = { viewModel.clearChat() },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DeleteOutline,
+                            contentDescription = "Clear chat",
+                            tint = TextMuted,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        // Messages list
+        if (chatMessages.isEmpty()) {
+            // Empty state with suggestion chips
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Forum,
+                    contentDescription = null,
+                    tint = SlateBorder,
+                    modifier = Modifier.size(48.dp)
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "Start a Conversation",
+                    color = TextTitle,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp
+                )
+                Text(
+                    text = "Ask anything about your recovery",
+                    color = TextBody,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 20.dp)
+                )
+
+                // Quick suggestion chips
+                val suggestions = listOf(
+                    "How many sets should I do?",
+                    "What if my pain gets worse?",
+                    "Can I use a brace?",
+                    "How often should I exercise?"
+                )
+                suggestions.forEach { suggestion ->
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .clickable {
+                                inputText = suggestion
+                                viewModel.sendChatMessage(suggestion)
+                                inputText = ""
+                            },
+                        shape = RoundedCornerShape(12.dp),
+                        color = SlateCard,
+                        border = BorderStroke(1.dp, SlateBorder)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                tint = ClinicalTeal,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = suggestion,
+                                color = TextTitle,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+            }
+        } else {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(vertical = 8.dp)
+            ) {
+                items(chatMessages) { message ->
+                    ChatBubble(message = message)
+                }
+
+                // Typing indicator
+                if (isSending) {
+                    item {
+                        Row(
+                            modifier = Modifier.padding(start = 8.dp, top = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CircularProgressIndicator(
+                                color = ClinicalTeal,
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Thinking...",
+                                color = TextMuted,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Input bar
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp, bottom = 8.dp),
+            colors = CardDefaults.cardColors(containerColor = SlateCard),
+            border = BorderStroke(1.dp, SlateBorder),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = inputText,
+                    onValueChange = { inputText = it },
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("chat_input_field"),
+                    placeholder = { Text("Ask about your recovery...", color = TextMuted, fontSize = 14.sp) },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color.Transparent,
+                        unfocusedBorderColor = Color.Transparent,
+                        focusedTextColor = TextTitle,
+                        unfocusedTextColor = TextTitle,
+                        cursorColor = ClinicalTeal,
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent
+                    ),
+                    maxLines = 3,
+                    singleLine = false,
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                Spacer(modifier = Modifier.width(4.dp))
+
+                IconButton(
+                    onClick = {
+                        if (inputText.isNotBlank() && !isSending) {
+                            viewModel.sendChatMessage(inputText.trim())
+                            inputText = ""
+                        }
+                    },
+                    enabled = inputText.isNotBlank() && !isSending,
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (inputText.isNotBlank() && !isSending) ClinicalTeal
+                            else SlateBorder
+                        )
+                        .testTag("chat_send_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Send,
+                        contentDescription = "Send",
+                        tint = if (inputText.isNotBlank() && !isSending) TextOnAccent else TextMuted,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ChatBubble(message: ChatMessage) {
+    val isUser = message.role == "user"
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp),
+        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
+    ) {
+        if (!isUser) {
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(ClinicalTealSurface),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.SmartToy,
+                    contentDescription = null,
+                    tint = ClinicalTeal,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+        }
+
+        Surface(
+            modifier = Modifier.widthIn(max = 280.dp),
+            shape = RoundedCornerShape(
+                topStart = if (isUser) 16.dp else 4.dp,
+                topEnd = if (isUser) 4.dp else 16.dp,
+                bottomStart = 16.dp,
+                bottomEnd = 16.dp
+            ),
+            color = if (isUser) ClinicalTeal else SlateCardElevated,
+            border = if (!isUser) BorderStroke(1.dp, SlateBorder) else null
+        ) {
+            Text(
+                text = message.text,
+                modifier = Modifier.padding(12.dp),
+                color = if (isUser) TextOnAccent else TextTitle,
+                fontSize = 14.sp,
+                lineHeight = 20.sp
+            )
+        }
+
+        if (isUser) {
+            Spacer(modifier = Modifier.width(8.dp))
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(MintSurface),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Person,
+                    contentDescription = null,
+                    tint = MintSecondary,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+    }
+}
+
+// ─── Sub-Composables ───
 
 @Composable
 fun EmptyPlanState() {
@@ -306,14 +703,14 @@ fun EmptyPlanState() {
         )
         Spacer(modifier = Modifier.height(16.dp))
         Text(
-            text = "No Active Therapy Plan",
+            text = "No Active Plan",
             color = TextTitle,
             fontWeight = FontWeight.Bold,
             style = MaterialTheme.typography.titleLarge
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "You haven't generated a rehab program yet. Click the reset action or re-enter the assessment to analyze joint parameters.",
+            text = "Complete an assessment to generate your personalized rehabilitation program.",
             color = TextBody,
             textAlign = TextAlign.Center,
             style = MaterialTheme.typography.bodyMedium
@@ -328,14 +725,14 @@ fun ClinicianOversightHeaderCard(
     onEnterClinicianReview: () -> Unit
 ) {
     val isPending = prog.clinicianStatus == "PENDING"
-    val cardColor = if (isPending) AmberWarning.copy(alpha = 0.12f) else GreenSuccess.copy(alpha = 0.12f)
+    val cardColor = if (isPending) AmberWarningSurface else GreenSuccessSurface
     val borderCol = if (isPending) AmberWarning else GreenSuccess
 
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = cardColor),
-        border = BorderStroke(1.dp, borderCol),
-        shape = RoundedCornerShape(12.dp)
+        border = BorderStroke(1.dp, borderCol.copy(alpha = 0.4f)),
+        shape = RoundedCornerShape(16.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -347,7 +744,7 @@ fun ClinicianOversightHeaderCard(
                 )
                 Spacer(modifier = Modifier.width(10.dp))
                 Text(
-                    text = if (isPending) "Pending Clinical Review" else "Active & Practitioner Vetted",
+                    text = if (isPending) "Pending Clinical Review" else "Clinician Verified",
                     fontWeight = FontWeight.Bold,
                     color = TextTitle,
                     fontSize = 15.sp
@@ -357,8 +754,8 @@ fun ClinicianOversightHeaderCard(
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = if (isPending) "To safeguard your muscular welfare, this plan highlights pending validation from clinical physiotherapists. You can bypass this to enable trial drills or review the dashboard."
-                       else "This plan was clinically verified by ${prog.therapistName ?: "Sarah Adams, DPT"}. Exercise modifications applied successfully.",
+                text = if (isPending) "This plan requires validation from a physiotherapist. You can bypass to try exercises or open the review panel."
+                       else "Verified by ${prog.therapistName ?: "Dr. Sarah Adams, DPT"}.",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextBody,
                 lineHeight = 16.sp
@@ -372,24 +769,24 @@ fun ClinicianOversightHeaderCard(
                 ) {
                     OutlinedButton(
                         onClick = onSkipReview,
-                        modifier = Modifier.weight(1f).height(38.dp),
-                        shape = RoundedCornerShape(6.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = borderCol),
-                        border = BorderStroke(1.dp, borderCol),
+                        modifier = Modifier.weight(1f).height(40.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = TextBody),
+                        border = BorderStroke(1.dp, SlateBorder),
                         contentPadding = PaddingValues(vertical = 4.dp)
                     ) {
-                        Text("Bypass / Try Drills", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text("Try Exercises", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
 
                     Button(
                         onClick = onEnterClinicianReview,
-                        modifier = Modifier.weight(1.3f).height(38.dp),
-                        shape = RoundedCornerShape(6.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = ClinicalTeal, contentColor = Color.White),
+                        modifier = Modifier.weight(1.3f).height(40.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = ClinicalTeal, contentColor = TextOnAccent),
                         contentPadding = PaddingValues(vertical = 4.dp),
                         elevation = ButtonDefaults.buttonElevation(0.dp)
                     ) {
-                        Text("Open Clinician Panel", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text("Open Review", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -403,7 +800,7 @@ fun ProgramSummaryCard(prog: ExerciseProgram) {
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = SlateCard),
         border = BorderStroke(1.dp, SlateBorder),
-        shape = RoundedCornerShape(12.dp)
+        shape = RoundedCornerShape(16.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
@@ -413,7 +810,7 @@ fun ProgramSummaryCard(prog: ExerciseProgram) {
                 fontWeight = FontWeight.Bold
             )
             Text(
-                text = "Targeted Zone: ${prog.bodyArea.lowercase().replaceFirstChar { it.uppercase() }} Structure",
+                text = "Target: ${prog.bodyArea.lowercase().replaceFirstChar { it.uppercase() }}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MintSecondary,
                 modifier = Modifier.padding(top = 2.dp)
@@ -430,10 +827,10 @@ fun ProgramSummaryCard(prog: ExerciseProgram) {
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Clinical Guidelines: $notes",
+                        text = notes,
                         style = MaterialTheme.typography.bodySmall,
                         color = TextBody,
-                        lineHeight = 15.sp
+                        lineHeight = 16.sp
                     )
                 }
             }
@@ -451,7 +848,7 @@ fun ExerciseRowItem(
             .fillMaxWidth()
             .clickable { onPlay() }
             .testTag("exercise_item_${exercise.title.replace(" ", "_").lowercase()}"),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(14.dp),
         color = SlateCard,
         border = BorderStroke(1.dp, SlateBorder)
     ) {
@@ -464,12 +861,11 @@ fun ExerciseRowItem(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.weight(1f)
             ) {
-                // Play Action Circle indicator
                 Box(
                     modifier = Modifier
-                        .size(38.dp)
+                        .size(40.dp)
                         .clip(CircleShape)
-                        .background(ClinicalTeal.copy(alpha = 0.12f)),
+                        .background(ClinicalTealSurface),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -490,7 +886,7 @@ fun ExerciseRowItem(
                         fontSize = 14.sp
                     )
                     Text(
-                        text = "${exercise.sets} sets × ${exercise.reps} reps | Muscle: ${exercise.targetMuscle}",
+                        text = "${exercise.sets} sets × ${exercise.reps} reps · ${exercise.targetMuscle}",
                         color = TextBody,
                         fontSize = 12.sp
                     )
@@ -506,29 +902,491 @@ fun ExerciseRowItem(
     }
 }
 
+/**
+ * Rich exercise card with step-by-step description and YouTube video link.
+ */
+@Composable
+fun ExerciseDetailCard(
+    exercise: Exercise,
+    onPlay: () -> Unit
+) {
+    val context = LocalContext.current
+    var expanded by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("exercise_detail_${exercise.title.replace(" ", "_").lowercase()}"),
+        colors = CardDefaults.cardColors(containerColor = SlateCard),
+        border = BorderStroke(1.dp, SlateBorder),
+        shape = RoundedCornerShape(14.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            // Header row
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(ClinicalTealSurface),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FitnessCenter,
+                            contentDescription = null,
+                            tint = ClinicalTeal,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Column {
+                        Text(
+                            text = exercise.title,
+                            color = TextTitle,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                        Text(
+                            text = "${exercise.sets} sets × ${exercise.reps} reps · ${exercise.targetMuscle}",
+                            color = TextBody,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+
+                Icon(
+                    imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = if (expanded) "Collapse" else "Expand",
+                    tint = TextBody
+                )
+            }
+
+            // Expandable detail section
+            AnimatedVisibility(visible = expanded) {
+                Column(
+                    modifier = Modifier.padding(top = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // Step-by-step instructions
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = SlateBgElevated),
+                        border = BorderStroke(1.dp, SlateBorder),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.MenuBook,
+                                    contentDescription = null,
+                                    tint = MintSecondary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "How to Perform",
+                                    color = MintSecondary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = exercise.description,
+                                color = TextBody,
+                                fontSize = 13.sp,
+                                lineHeight = 20.sp
+                            )
+                        }
+                    }
+
+                    // Duration info (if present)
+                    if (exercise.durationSeconds > 0) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 4.dp)
+                        ) {
+                            Icon(Icons.Default.Timer, null, tint = ClinicalTeal, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Hold each rep for ${exercise.durationSeconds} seconds",
+                                color = ClinicalTeal,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+
+                    // Action buttons row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        // YouTube video button
+                        val videoQuery = exercise.videoSearchQuery.ifBlank {
+                            "${exercise.title} physical therapy exercise demonstration"
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                val encodedQuery = Uri.encode(videoQuery)
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/results?search_query=$encodedQuery"))
+                                context.startActivity(intent)
+                            },
+                            modifier = Modifier.weight(1f).height(40.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, CoralAlarm.copy(alpha = 0.5f)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = CoralAlarm),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Icon(Icons.Default.OndemandVideo, null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Watch Demo", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        // Start exercise button
+                        Button(
+                            onClick = onPlay,
+                            modifier = Modifier.weight(1f).height(40.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = ClinicalTeal, contentColor = TextOnAccent),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Start Exercise", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Export/Share Recovery Report card with prominent CTA button.
+ */
+@Composable
+fun ExportReportCard(onExport: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("export_report_card"),
+        colors = CardDefaults.cardColors(containerColor = SlateCard),
+        border = BorderStroke(1.dp, ClinicalTeal.copy(alpha = 0.3f)),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.PictureAsPdf,
+                    contentDescription = null,
+                    tint = ClinicalTeal,
+                    modifier = Modifier.size(22.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = "Recovery Report",
+                    fontWeight = FontWeight.Bold,
+                    color = TextTitle,
+                    fontSize = 15.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "Generate a professional PDF report with your assessment, diagnosis, exercises, and workout history to share with your clinician.",
+                color = TextBody,
+                fontSize = 12.sp,
+                lineHeight = 17.sp,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            Button(
+                onClick = onExport,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(46.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color.Transparent,
+                    contentColor = TextOnAccent
+                ),
+                contentPadding = PaddingValues(0.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(ClinicalTeal, ClinicalTealLight)
+                            ),
+                            shape = RoundedCornerShape(12.dp)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Export & Share PDF", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * AI Condition Diagnosis Card — shows what the AI thinks the injury is, confidence level, and explanation.
+ */
+@Composable
+fun ConditionDiagnosisCard(
+    conditionName: String,
+    confidence: Int,
+    explanation: String
+) {
+    val confColor = when {
+        confidence >= 70 -> GreenSuccess
+        confidence >= 45 -> AmberWarning
+        else -> CoralAlarm
+    }
+    val confLabel = when {
+        confidence >= 70 -> "High Confidence"
+        confidence >= 45 -> "Moderate Confidence"
+        else -> "Low Confidence"
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = SlateCard),
+        border = BorderStroke(1.dp, confColor.copy(alpha = 0.4f)),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.LocalHospital,
+                    contentDescription = null,
+                    tint = confColor,
+                    modifier = Modifier.size(22.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = "AI Suggested Diagnosis",
+                    fontWeight = FontWeight.Bold,
+                    color = TextTitle,
+                    fontSize = 14.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Condition name
+            Text(
+                text = conditionName,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Black,
+                color = TextTitle
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Confidence bar
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Confidence", color = TextBody, fontSize = 12.sp)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "$confidence%",
+                        color = confColor,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = when {
+                            confidence >= 70 -> GreenSuccessSurface
+                            confidence >= 45 -> AmberWarningSurface
+                            else -> CoralAlarmSurface
+                        }
+                    ) {
+                        Text(
+                            text = confLabel,
+                            color = confColor,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 10.sp,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Progress bar
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(8.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(SlateBorder)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .fillMaxWidth(confidence.toFloat() / 100f)
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(confColor, confColor.copy(alpha = 0.6f))
+                            )
+                        )
+                )
+            }
+
+            // Explanation
+            if (explanation.isNotBlank()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = explanation,
+                    color = TextBody,
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "⚕ This is an AI suggestion, not a clinical diagnosis. Always consult your physician.",
+                color = TextMuted,
+                fontSize = 10.sp,
+                lineHeight = 13.sp
+            )
+        }
+    }
+}
+
+/**
+ * Patient Assessment Report Card — renders all stored assessment data.
+ */
+@Composable
+fun PatientReportCard(assessment: UserAssessment) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = SlateCard),
+        border = BorderStroke(1.dp, SlateBorder),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Assignment,
+                    contentDescription = null,
+                    tint = MintSecondary,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Your Assessment Summary",
+                    fontWeight = FontWeight.Bold,
+                    color = TextTitle,
+                    fontSize = 14.sp
+                )
+            }
+
+            HorizontalDivider(color = SlateBorder, modifier = Modifier.padding(vertical = 10.dp))
+
+            // Data rows
+            AssessmentDataRow(label = "Body Area", value = assessment.bodyArea.lowercase().replaceFirstChar { it.uppercase() })
+            AssessmentDataRow(label = "Pain Intensity", value = "${assessment.painIntensity}/10", valueColor = getSeverityColorForIntensity(assessment.painIntensity))
+            AssessmentDataRow(label = "Triage Status", value = assessment.triageStatus.replace("_", " ").lowercase().replaceFirstChar { it.uppercase() })
+
+            assessment.selectedMovement?.let { movement ->
+                AssessmentDataRow(label = "Recorded Movement", value = movement)
+            }
+            assessment.targetAngle?.let { angle ->
+                AssessmentDataRow(label = "Target Angle", value = "${angle}°")
+            }
+            assessment.scanAngleResult?.let { rom ->
+                AssessmentDataRow(label = "Measured ROM", value = "${rom}°", valueColor = ClinicalTealLight)
+            }
+
+            // Symptoms description
+            if (assessment.freeTextDescription.isNotBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Symptoms", color = TextMuted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    // Strip the auto-appended motion plan text for cleaner display
+                    text = assessment.freeTextDescription.substringBefore("\n\n[Clinical AI"),
+                    color = TextBody,
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun AssessmentDataRow(label: String, value: String, valueColor: Color = TextTitle) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(text = label, color = TextBody, fontSize = 12.sp)
+        Text(text = value, color = valueColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+private fun getSeverityColorForIntensity(intensity: Int): Color {
+    return when (intensity) {
+        in 1..3 -> GreenSuccess
+        in 4..6 -> AmberWarning
+        else -> CoralAlarm
+    }
+}
+
 @Composable
 fun WeeklyActivityChartCard(logs: List<ExerciseProgress>) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = SlateCard),
         border = BorderStroke(1.dp, SlateBorder),
-        shape = RoundedCornerShape(12.dp)
+        shape = RoundedCornerShape(16.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                text = "Rehab Drills Completeness",
+                text = "Weekly Activity",
                 fontWeight = FontWeight.Bold,
                 color = TextTitle,
                 fontSize = 15.sp
             )
             Text(
-                text = "Weekly workout performance frequency tracking",
+                text = "Workout frequency this week",
                 color = TextBody,
                 fontSize = 12.sp,
                 modifier = Modifier.padding(bottom = 12.dp)
             )
 
-            // Dynamic Custom drawing of vertical bar charts
             Canvas(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -537,19 +1395,16 @@ fun WeeklyActivityChartCard(logs: List<ExerciseProgress>) {
                 val canvasWidth = size.width
                 val canvasHeight = size.height
 
-                // Days index mapping
                 val days = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
                 val dayPadding = 20f
                 val barCount = days.size
                 val spaceBetweenBars = (canvasWidth - (dayPadding * 2)) / barCount
 
-                // Sift logs into weekdays
                 val calendar = java.util.Calendar.getInstance()
                 val counts = IntArray(barCount) { 0 }
                 logs.forEach { log ->
                     calendar.timeInMillis = log.timestamp
                     val dayOfWeek = calendar.get(java.util.Calendar.DAY_OF_WEEK)
-                    // Calendar day of week is 1=Sunday, 2=Monday...
                     val mappedIdx = when (dayOfWeek) {
                         java.util.Calendar.MONDAY -> 0
                         java.util.Calendar.TUESDAY -> 1
@@ -574,15 +1429,15 @@ fun WeeklyActivityChartCard(logs: List<ExerciseProgress>) {
                     val x = dayPadding + (idx * spaceBetweenBars) + (spaceBetweenBars / 2) - (barWidth / 2)
                     val y = canvasHeight * 0.75f - barHeight
 
-                    // Draw background slate caps
+                    // Background bar
                     drawRoundRect(
-                        color = Color(0xFFE2E8F0),
+                        color = SlateBorder,
                         topLeft = Offset(x, 0f),
                         size = androidx.compose.ui.geometry.Size(barWidth, canvasHeight * 0.75f),
                         cornerRadius = CornerRadius(6.dp.toPx(), 6.dp.toPx())
                     )
 
-                    // Draw front glowing Teal active counts
+                    // Active bar
                     if (count > 0) {
                         drawRoundRect(
                             color = ClinicalTeal,
@@ -599,7 +1454,7 @@ fun WeeklyActivityChartCard(logs: List<ExerciseProgress>) {
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun").forEach { d ->
-                    Text(text = d, color = TextBody, fontSize = 10.sp, textAlign = TextAlign.Center, modifier = Modifier.width(36.dp))
+                    Text(text = d, color = TextMuted, fontSize = 10.sp, textAlign = TextAlign.Center, modifier = Modifier.width(36.dp))
                 }
             }
         }
@@ -614,7 +1469,7 @@ fun completedWorkoutRowItem(log: ExerciseProgress) {
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(10.dp),
+        shape = RoundedCornerShape(12.dp),
         color = SlateCard,
         border = BorderStroke(1.dp, SlateBorder)
     ) {
@@ -639,15 +1494,15 @@ fun completedWorkoutRowItem(log: ExerciseProgress) {
                     fontSize = 14.sp
                 )
                 Text(
-                    text = "${log.setsCompleted} sets × ${log.repsCompleted} reps completed",
+                    text = "${log.setsCompleted} sets × ${log.repsCompleted} reps",
                     color = TextBody,
                     fontSize = 12.sp
                 )
                 Row(modifier = Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(imageVector = Icons.Default.Timeline, contentDescription = "Pain Diff", tint = MintSecondary, modifier = Modifier.size(12.dp))
+                    Icon(imageVector = Icons.Default.Timeline, contentDescription = "Pain", tint = MintSecondary, modifier = Modifier.size(12.dp))
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "Pain level: ${log.painLevelPre}/10 ➔ ${log.painLevelPost}/10",
+                        text = "Pain: ${log.painLevelPre}/10 → ${log.painLevelPost}/10",
                         color = MintSecondary,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold
@@ -657,7 +1512,7 @@ fun completedWorkoutRowItem(log: ExerciseProgress) {
 
             Text(
                 text = dateText,
-                color = TextBody,
+                color = TextMuted,
                 fontSize = 10.sp,
                 textAlign = TextAlign.End
             )
@@ -665,7 +1520,7 @@ fun completedWorkoutRowItem(log: ExerciseProgress) {
     }
 }
 
-// --- Exercise Active Player Workout Dialog ---
+// ─── Exercise Player Dialog ───
 
 @Composable
 fun ExercisePlayerDialog(
@@ -676,14 +1531,11 @@ fun ExercisePlayerDialog(
 ) {
     var timerSecondsRemaining by remember { mutableStateOf(exercise.durationSeconds.coerceAtLeast(30)) }
     var timerRunning by remember { mutableStateOf(false) }
-
     var currentSetCompleteness by remember { mutableStateOf(1) }
-    
     var prePainLog by remember { mutableStateOf(5) }
     var postPainLog by remember { mutableStateOf(4) }
     var clinicianUserNotes by remember { mutableStateOf("") }
-
-    var stepFlowState by remember { mutableStateOf(1) } // 1 = Play animation / Timer, 2 = Log pain outcomes
+    var stepFlowState by remember { mutableStateOf(1) }
 
     LaunchedEffect(timerRunning) {
         if (timerRunning) {
@@ -699,22 +1551,22 @@ fun ExercisePlayerDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = if (stepFlowState == 1) "Performing: ${exercise.title}" else "Log Joint Outcome Feedback",
+                text = if (stepFlowState == 1) exercise.title else "Log Outcome",
                 fontWeight = FontWeight.Bold,
                 color = TextTitle,
                 fontSize = 18.sp
             )
         },
-        containerColor = SlateCard,
+        containerColor = SlateCardElevated,
         confirmButton = {
             if (stepFlowState == 1) {
                 Button(
                     onClick = { stepFlowState = 2 },
-                    colors = ButtonDefaults.buttonColors(containerColor = ClinicalTeal, contentColor = Color.White),
-                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = ClinicalTeal, contentColor = TextOnAccent),
+                    shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.testTag("submit_rep_set_log_button")
                 ) {
-                    Text("I've Completed Drill", fontWeight = FontWeight.Bold)
+                    Text("Complete", fontWeight = FontWeight.Bold)
                 }
             } else {
                 Button(
@@ -722,10 +1574,10 @@ fun ExercisePlayerDialog(
                         onCompleted(currentSetCompleteness, exercise.reps, prePainLog, postPainLog, clinicianUserNotes)
                     },
                     modifier = Modifier.testTag("save_finished_log_action"),
-                    colors = ButtonDefaults.buttonColors(containerColor = GreenSuccess, contentColor = Color.White),
-                    shape = RoundedCornerShape(8.dp)
+                    colors = ButtonDefaults.buttonColors(containerColor = GreenSuccess, contentColor = TextOnAccent),
+                    shape = RoundedCornerShape(10.dp)
                 ) {
-                    Text("Save Log Logs", fontWeight = FontWeight.Bold)
+                    Text("Save Log", fontWeight = FontWeight.Bold)
                 }
             }
         },
@@ -737,27 +1589,42 @@ fun ExercisePlayerDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 if (stepFlowState == 1) {
-                    // Instruction Paragraph
-                    Text(text = exercise.description, color = TextBody, style = MaterialTheme.typography.bodyMedium, lineHeight = 20.sp)
+                    Text(
+                        text = exercise.description,
+                        color = TextBody,
+                        style = MaterialTheme.typography.bodyMedium,
+                        lineHeight = 20.sp
+                    )
 
-                    // Target indicator chips
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        SuggestionChip(onClick = {}, label = { Text("Sets target: ${exercise.sets}") }, colors = SuggestionChipDefaults.suggestionChipColors(labelColor = ClinicalTeal))
-                        SuggestionChip(onClick = {}, label = { Text("Reps target: ${exercise.reps}") }, colors = SuggestionChipDefaults.suggestionChipColors(labelColor = ClinicalTeal))
+                        SuggestionChip(
+                            onClick = {},
+                            label = { Text("${exercise.sets} sets") },
+                            colors = SuggestionChipDefaults.suggestionChipColors(
+                                labelColor = ClinicalTeal,
+                                containerColor = ClinicalTealSurface
+                            )
+                        )
+                        SuggestionChip(
+                            onClick = {},
+                            label = { Text("${exercise.reps} reps") },
+                            colors = SuggestionChipDefaults.suggestionChipColors(
+                                labelColor = ClinicalTeal,
+                                containerColor = ClinicalTealSurface
+                            )
+                        )
                     }
 
                     HorizontalDivider(color = SlateBorder)
 
-                    // Timer details
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
                     ) {
-                        Text(text = "Rhythm pacing breathing clock", color = TextBody, fontSize = 11.sp)
-                        
+                        Text(text = "Exercise Timer", color = TextMuted, fontSize = 11.sp)
                         Text(
                             text = String.format("%02d:%02d", timerSecondsRemaining / 60, timerSecondsRemaining % 60),
                             fontSize = 38.sp,
@@ -770,7 +1637,7 @@ fun ExercisePlayerDialog(
                             IconButton(onClick = { timerRunning = !timerRunning }) {
                                 Icon(
                                     imageVector = if (timerRunning) Icons.Default.PauseCircle else Icons.Default.PlayCircle,
-                                    contentDescription = "Stop",
+                                    contentDescription = "Toggle",
                                     tint = ClinicalTeal,
                                     modifier = Modifier.size(36.dp)
                                 )
@@ -789,50 +1656,55 @@ fun ExercisePlayerDialog(
                         }
                     }
                 } else {
-                    // Logging results step
-                    Text(text = "How does your joint feel after this exercise? Logging pain inputs helps the AI adapt parameters safely.", color = TextBody, fontSize = 12.sp)
+                    Text(
+                        text = "Rate your pain before and after to help the AI adapt your program.",
+                        color = TextBody,
+                        fontSize = 12.sp
+                    )
 
-                    // Pre vs Post Sliders
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(text = "Anterior pain level BEFORE drill: $prePainLog/10", color = TextTitle, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Text(text = "Pain BEFORE: $prePainLog/10", color = TextTitle, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         Slider(
                             value = prePainLog.toFloat(),
                             onValueChange = { prePainLog = it.toInt() },
                             valueRange = 0f..10f,
                             steps = 9,
-                            colors = SliderDefaults.colors(activeTrackColor = ClinicalTeal, thumbColor = ClinicalTeal)
+                            colors = SliderDefaults.colors(activeTrackColor = ClinicalTeal, thumbColor = ClinicalTeal, inactiveTrackColor = SlateBorder)
                         )
                     }
 
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(text = "Anterior pain level AFTER drill: $postPainLog/10", color = TextTitle, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Text(text = "Pain AFTER: $postPainLog/10", color = TextTitle, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         Slider(
                             value = postPainLog.toFloat(),
                             onValueChange = { postPainLog = it.toInt() },
                             valueRange = 0f..10f,
                             steps = 9,
-                            colors = SliderDefaults.colors(activeTrackColor = MintSecondary, thumbColor = MintSecondary)
+                            colors = SliderDefaults.colors(activeTrackColor = MintSecondary, thumbColor = MintSecondary, inactiveTrackColor = SlateBorder)
                         )
                     }
 
                     OutlinedTextField(
                         value = clinicianUserNotes,
                         onValueChange = { clinicianUserNotes = it },
-                        placeholder = { Text("Add any personal feedback (e.g. felt minor clicking, tight hamstring).", color = TextBody) },
+                        placeholder = { Text("Add notes (optional)...", color = TextMuted) },
                         modifier = Modifier.fillMaxWidth().height(80.dp),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = ClinicalTeal,
                             unfocusedBorderColor = SlateBorder,
                             focusedTextColor = TextTitle,
-                            unfocusedTextColor = TextTitle
+                            unfocusedTextColor = TextTitle,
+                            cursorColor = ClinicalTeal
                         ),
-                        shape = RoundedCornerShape(8.dp)
+                        shape = RoundedCornerShape(10.dp)
                     )
                 }
             }
         }
     )
 }
+
+// ─── Video AI Lab Tab ───
 
 @Composable
 fun VideoAiLabTab(viewModel: RehabViewModel) {
@@ -871,7 +1743,6 @@ fun VideoAiLabTab(viewModel: RehabViewModel) {
         } else if (recordingTimerRemaining == 0) {
             recordingTimerRemaining = -1
             showRecordingHud = false
-            // Analyze the simulated video frame!
             val parsedTask = selectedTask ?: activities.firstOrNull() ?: "Joint Flexion"
             val bitmap = createSimulatedPerformanceBitmap(areaStr, parsedTask, selectedSimulatedPerformance)
             viewModel.analyzeVideoActivity(parsedTask, bitmap, selectedSimulatedPerformance)
@@ -887,9 +1758,9 @@ fun VideoAiLabTab(viewModel: RehabViewModel) {
         // Lab banner
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = ClinicalTeal.copy(alpha = 0.08f)),
-            border = BorderStroke(1.dp, ClinicalTeal.copy(alpha = 0.3f)),
-            shape = RoundedCornerShape(12.dp)
+            colors = CardDefaults.cardColors(containerColor = ClinicalTealSurface),
+            border = BorderStroke(1.dp, ClinicalTeal.copy(alpha = 0.2f)),
+            shape = RoundedCornerShape(16.dp)
         ) {
             Row(
                 modifier = Modifier.padding(16.dp),
@@ -904,23 +1775,21 @@ fun VideoAiLabTab(viewModel: RehabViewModel) {
                 ) {
                     Icon(
                         imageVector = Icons.Default.Videocam,
-                        contentDescription = "Video AI Lab",
+                        contentDescription = "Video Lab",
                         tint = ClinicalTeal,
                         modifier = Modifier.size(22.dp)
                     )
                 }
-
                 Spacer(modifier = Modifier.width(14.dp))
-
                 Column {
                     Text(
-                        text = "AI Motion & Dolorimetry Lab",
+                        text = "AI Motion & Pain Lab",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = TextTitle
                     )
                     Text(
-                        text = "Real-time joints tracking & facial pain grimace analysis",
+                        text = "Joint tracking & facial pain expression analysis",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextBody
                     )
@@ -929,17 +1798,17 @@ fun VideoAiLabTab(viewModel: RehabViewModel) {
         }
 
         if (selectedTask == null) {
-            // Task Listing section
+            // Task list
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    text = "Assigned Kinematic Activities ($areaDisplayName)",
+                    text = "Activities ($areaDisplayName)",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White
+                    color = TextTitle
                 )
 
                 Text(
-                    text = "Select any prescribed task below to record or upload a performance video. The VLM (Vision Language Model) will reconstruct bone segments, calculate range of motion (ROM), and analyze your facial pain expression values.",
+                    text = "Select an activity to record and analyze with AI vision.",
                     style = MaterialTheme.typography.bodySmall,
                     color = TextBody,
                     lineHeight = 16.sp
@@ -955,7 +1824,7 @@ fun VideoAiLabTab(viewModel: RehabViewModel) {
                             .testTag("activity_task_card_$idx"),
                         colors = CardDefaults.cardColors(containerColor = SlateCard),
                         border = BorderStroke(1.dp, SlateBorder),
-                        shape = RoundedCornerShape(12.dp)
+                        shape = RoundedCornerShape(14.dp)
                     ) {
                         Row(
                             modifier = Modifier.padding(16.dp),
@@ -969,41 +1838,19 @@ fun VideoAiLabTab(viewModel: RehabViewModel) {
                                 Box(
                                     modifier = Modifier
                                         .size(36.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(ClinicalTeal.copy(alpha = 0.12f)),
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(ClinicalTealSurface),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Text(
-                                        text = "${idx + 1}",
-                                        color = ClinicalTeal,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 14.sp
-                                    )
+                                    Text("${idx + 1}", color = ClinicalTeal, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                 }
-
                                 Spacer(modifier = Modifier.width(14.dp))
-
                                 Column {
-                                    Text(
-                                        text = activity,
-                                        color = Color.White,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 14.sp
-                                    )
-                                    Text(
-                                        text = "Target Zone: $areaDisplayName Joint",
-                                        color = TextBody,
-                                        fontSize = 11.sp
-                                    )
+                                    Text(text = activity, color = TextTitle, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    Text(text = "Target: $areaDisplayName", color = TextBody, fontSize = 11.sp)
                                 }
                             }
-
-                            Icon(
-                                imageVector = Icons.Default.PlayArrow,
-                                contentDescription = "Start",
-                                tint = ClinicalTeal,
-                                modifier = Modifier.size(20.dp)
-                            )
+                            Icon(imageVector = Icons.Default.PlayArrow, contentDescription = "Start", tint = ClinicalTeal, modifier = Modifier.size(20.dp))
                         }
                     }
                 }
@@ -1011,158 +1858,85 @@ fun VideoAiLabTab(viewModel: RehabViewModel) {
         } else {
             val task = selectedTask!!
 
-            // Task Active Panel
+            // Task header
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = { viewModel.selectTask(null) }) {
-                    Icon(imageVector = Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
+                    Icon(imageVector = Icons.Default.ArrowBack, contentDescription = "Back", tint = TextTitle)
                 }
-
                 Text(
-                    text = "Activity: $task",
-                    fontWeight = FontWeight.Black,
-                    color = Color.White,
-                    fontSize = 15.sp,
+                    text = task,
+                    fontWeight = FontWeight.Bold,
+                    color = TextTitle,
+                    fontSize = 14.sp,
                     modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
                 )
-
                 TextButton(onClick = { viewModel.selectTask(null) }) {
-                    Text("Change", color = MintSecondary, fontSize = 12.sp)
+                    Text("Change", color = ClinicalTeal, fontSize = 12.sp)
                 }
             }
 
-            // Simulated Video Input Viewport
+            // Video viewport
             Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(260.dp),
+                modifier = Modifier.fillMaxWidth().height(260.dp),
                 colors = CardDefaults.cardColors(containerColor = SlateCard),
                 border = BorderStroke(1.dp, if (showRecordingHud) CoralAlarm else SlateBorder),
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(16.dp)
             ) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     if (showRecordingHud) {
-                        // Live simulation countdown timer overlay
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                imageVector = Icons.Default.Videocam,
-                                contentDescription = "Recording",
-                                tint = CoralAlarm,
-                                modifier = Modifier.size(54.dp)
-                            )
+                            Icon(Icons.Default.Videocam, "Recording", tint = CoralAlarm, modifier = Modifier.size(54.dp))
                             Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = "Capturing exercise video frames... ${recordingTimerRemaining}s",
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp
-                            )
-                            Text(
-                                text = "[AI joints mapping actively tracking...]",
-                                color = TextBody,
-                                fontSize = 12.sp,
-                                modifier = Modifier.padding(top = 4.dp)
-                            )
+                            Text("Recording... ${recordingTimerRemaining}s", color = TextTitle, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Text("[AI tracking joints...]", color = TextBody, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
                             Spacer(modifier = Modifier.height(8.dp))
-                            LinearProgressIndicator(color = CoralAlarm, modifier = Modifier.width(180.dp))
+                            LinearProgressIndicator(color = CoralAlarm, trackColor = SlateBorder, modifier = Modifier.width(180.dp))
                         }
                     } else if (isAnalyzing) {
-                        // AI analyzing overlay
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             CircularProgressIndicator(color = ClinicalTeal, modifier = Modifier.size(44.dp))
                             Spacer(modifier = Modifier.height(14.dp))
-                            Text(
-                                text = "AI Kinesiology & Pain Analyzer at work...",
-                                color = ClinicalTeal,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 14.sp
-                            )
-                            Text(
-                                text = "Decoding joint flexions & facial scale indices...",
-                                color = TextBody,
-                                fontSize = 11.sp,
-                                modifier = Modifier.padding(top = 4.dp)
-                            )
+                            Text("AI analyzing performance...", color = ClinicalTeal, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text("Decoding joint & facial data...", color = TextBody, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
                         }
                     } else if (analysisResult != null) {
-                        // Show simulated frame that was scanned!
-                        val res = analysisResult!!
                         val bitmap = remember(selectedSimulatedPerformance) {
                             createSimulatedPerformanceBitmap(areaStr, task, selectedSimulatedPerformance)
                         }
-                        
                         Box(modifier = Modifier.fillMaxSize()) {
-                            Image(
-                                bitmap = bitmap.asImageBitmap(),
-                                contentDescription = "Analysis frame preview",
-                                modifier = Modifier.fillMaxSize()
-                            )
-
-                            // Tag label overlay
+                            Image(bitmap = bitmap.asImageBitmap(), contentDescription = "Frame", modifier = Modifier.fillMaxSize())
                             Surface(
-                                modifier = Modifier
-                                    .align(Alignment.BottomCenter)
-                                    .padding(bottom = 12.dp),
+                                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp),
                                 shape = RoundedCornerShape(16.dp),
                                 color = Color.Black.copy(alpha = 0.7f)
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(imageVector = Icons.Default.Camera, contentDescription = null, tint = ClinicalTeal, modifier = Modifier.size(14.dp))
+                                Row(modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Camera, null, tint = ClinicalTeal, modifier = Modifier.size(14.dp))
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Analyzed AI Performance Frame Preview", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    Text("AI Analysis Frame", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
                     } else {
-                        // Video Upload Waiting card
-                        Column(
-                            modifier = Modifier.padding(24.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.UploadFile,
-                                contentDescription = "Select",
-                                tint = TextBody,
-                                modifier = Modifier.size(44.dp)
-                            )
+                        Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Default.UploadFile, "Select", tint = TextBody, modifier = Modifier.size(44.dp))
                             Spacer(modifier = Modifier.height(10.dp))
-                            Text(
-                                text = "Kinetics Video Upload Console",
-                                style = MaterialTheme.typography.titleSmall,
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "Record or select a 5s clip of you doing: $task",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextBody,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.padding(top = 2.dp)
-                            )
-
+                            Text("Video Upload", style = MaterialTheme.typography.titleSmall, color = TextTitle, fontWeight = FontWeight.Bold)
+                            Text("Record a 5s clip of: $task", style = MaterialTheme.typography.bodySmall, color = TextBody, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 2.dp))
                             Spacer(modifier = Modifier.height(16.dp))
-
                             Button(
-                                onClick = {
-                                    showRecordingHud = true
-                                    recordingTimerRemaining = 3
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = ClinicalTeal, contentColor = SlateBg),
-                                shape = RoundedCornerShape(8.dp),
+                                onClick = { showRecordingHud = true; recordingTimerRemaining = 3 },
+                                colors = ButtonDefaults.buttonColors(containerColor = ClinicalTeal, contentColor = TextOnAccent),
+                                shape = RoundedCornerShape(10.dp),
                                 modifier = Modifier.testTag("upload_activity_video_button")
                             ) {
-                                Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Record & Analyze Video", fontWeight = FontWeight.Bold)
+                                Text("Record & Analyze", fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -1170,312 +1944,133 @@ fun VideoAiLabTab(viewModel: RehabViewModel) {
             }
 
             if (analysisResult == null && !showRecordingHud && !isAnalyzing) {
-                // Interactive tester segmented details so users can choose simulated outcomes!
+                // Performance selector
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = SlateCard),
                     border = BorderStroke(1.dp, SlateBorder),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(14.dp)
                 ) {
                     Column(modifier = Modifier.padding(14.dp)) {
-                        Text(
-                            text = "Aesthetic Selector: Test AI Diagnostics",
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            fontSize = 13.sp,
-                            modifier = Modifier.padding(bottom = 8.dp)
-                        )
-                        Text(
-                            text = "To test the AI pain model's visual reasoning, choose the joint & face performance index to simulate below:",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextBody,
-                            lineHeight = 15.sp,
-                            modifier = Modifier.padding(bottom = 12.dp)
-                        )
+                        Text("Simulation Mode", fontWeight = FontWeight.Bold, color = TextTitle, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp))
+                        Text("Choose performance type to test AI analysis:", style = MaterialTheme.typography.bodySmall, color = TextBody, lineHeight = 15.sp, modifier = Modifier.padding(bottom = 12.dp))
 
                         val options = listOf("Pain-Free / Normal Space", "Mild Pinch / Guarding", "Severe Pain / Sharp Lock")
                         options.forEach { opt ->
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp)
-                                    .clickable { selectedSimulatedPerformance = opt },
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { selectedSimulatedPerformance = opt },
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 RadioButton(
                                     selected = selectedSimulatedPerformance == opt,
                                     onClick = { selectedSimulatedPerformance = opt },
-                                    colors = RadioButtonDefaults.colors(
-                                        selectedColor = ClinicalTeal,
-                                        unselectedColor = SlateBorder
-                                    )
+                                    colors = RadioButtonDefaults.colors(selectedColor = ClinicalTeal, unselectedColor = SlateBorder)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = opt,
-                                    color = if (selectedSimulatedPerformance == opt) Color.White else TextBody,
-                                    fontSize = 13.sp,
-                                    fontWeight = if (selectedSimulatedPerformance == opt) FontWeight.Bold else FontWeight.Normal
-                                )
+                                Text(text = opt, color = if (selectedSimulatedPerformance == opt) TextTitle else TextBody, fontSize = 13.sp, fontWeight = if (selectedSimulatedPerformance == opt) FontWeight.Bold else FontWeight.Normal)
                             }
                         }
                     }
                 }
             }
 
-            // Results diagnostics presentation cards!
+            // Analysis results
             if (analysisResult != null && !showRecordingHud && !isAnalyzing) {
                 val res = analysisResult!!
 
-                // Joint ROM Angle Details Card
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = SlateCard),
-                    border = BorderStroke(1.dp, SlateBorder),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
+                // ROM card
+                Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = SlateCard), border = BorderStroke(1.dp, SlateBorder), shape = RoundedCornerShape(14.dp)) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = "1. Joint Range of Motion (ROM)",
-                            fontWeight = FontWeight.Bold,
-                            color = ClinicalTeal,
-                            fontSize = 14.sp
-                        )
+                        Text("1. Range of Motion", fontWeight = FontWeight.Bold, color = ClinicalTeal, fontSize = 14.sp)
                         Spacer(modifier = Modifier.height(10.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Column {
-                                Text("Estimated Flexion Angle", style = MaterialTheme.typography.bodySmall, color = TextBody)
-                                Text(
-                                    text = "${res.calculatedRomDegrees}°",
-                                    fontSize = 28.sp,
-                                    fontWeight = FontWeight.Black,
-                                    color = Color.White
-                                )
+                                Text("Flexion Angle", style = MaterialTheme.typography.bodySmall, color = TextBody)
+                                Text("${res.calculatedRomDegrees}°", fontSize = 28.sp, fontWeight = FontWeight.Black, color = TextTitle)
                             }
-
-                            Surface(
-                                shape = RoundedCornerShape(4.dp),
-                                color = if (res.guardingDetected) AmberWarning.copy(alpha = 0.15f) else GreenSuccess.copy(alpha = 0.15f),
-                                border = BorderStroke(1.dp, if (res.guardingDetected) AmberWarning else GreenSuccess)
-                            ) {
-                                Text(
-                                    text = if (res.guardingDetected) "GUARDING DETECTED" else "OPTIMAL ROM",
-                                    color = if (res.guardingDetected) AmberWarning else GreenSuccess,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 10.sp,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
+                            Surface(shape = RoundedCornerShape(6.dp), color = if (res.guardingDetected) AmberWarningSurface else GreenSuccessSurface, border = BorderStroke(1.dp, if (res.guardingDetected) AmberWarning else GreenSuccess)) {
+                                Text(if (res.guardingDetected) "GUARDING" else "OPTIMAL", color = if (res.guardingDetected) AmberWarning else GreenSuccess, fontWeight = FontWeight.Bold, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
                             }
                         }
-
                         Spacer(modifier = Modifier.height(12.dp))
-                        
-                        // Small graphic layout indicating arc progress
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(12.dp)
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(SlateBorder)
-                        ) {
-                            val activePct = (res.calculatedRomDegrees.toFloat() / 180f).coerceIn(0f, 1f)
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxHeight()
-                                    .fillMaxWidth(activePct)
-                                    .background(ClinicalTeal)
-                            )
+                        Box(modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)).background(SlateBorder)) {
+                            Box(modifier = Modifier.fillMaxHeight().fillMaxWidth((res.calculatedRomDegrees.toFloat() / 180f).coerceIn(0f, 1f)).background(Brush.horizontalGradient(listOf(ClinicalTeal, ClinicalTealLight))))
                         }
                     }
                 }
 
-                // Facial expressions of pain card!
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = SlateCard),
-                    border = BorderStroke(1.dp, SlateBorder),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                     Column(modifier = Modifier.padding(16.dp)) {
-                         Text(
-                             text = "2. Facial Expressions of Pain (Dolorimetry)",
-                             fontWeight = FontWeight.Bold,
-                             color = MintSecondary,
-                             fontSize = 14.sp
-                         )
-                         Spacer(modifier = Modifier.height(10.dp))
-
-                         Row(
-                             modifier = Modifier.fillMaxWidth(),
-                             horizontalArrangement = Arrangement.SpaceBetween,
-                             verticalAlignment = Alignment.CenterVertically
-                         ) {
-                             Column {
-                                 Text("Max Grimace Pain Index", style = MaterialTheme.typography.bodySmall, color = TextBody)
-                                 Row(verticalAlignment = Alignment.Bottom) {
-                                     Text(
-                                         text = "${res.maxPainGrimaceIndex}",
-                                         fontSize = 28.sp,
-                                         fontWeight = FontWeight.Black,
-                                         color = Color.White
-                                     )
-                                     Text("/10", fontSize = 14.sp, color = TextBody, modifier = Modifier.padding(bottom = 4.dp, start = 2.dp))
-                                 }
-                             }
-
-                             Surface(
-                                 shape = RoundedCornerShape(4.dp),
-                                 color = when {
-                                     res.maxPainGrimaceIndex < 3.0 -> GreenSuccess.copy(alpha = 0.15f)
-                                     res.maxPainGrimaceIndex < 7.0 -> AmberWarning.copy(alpha = 0.15f)
-                                     else -> CoralAlarm.copy(alpha = 0.15f)
-                                 },
-                                 border = BorderStroke(
-                                     1.dp,
-                                     when {
-                                         res.maxPainGrimaceIndex < 3.0 -> GreenSuccess
-                                         res.maxPainGrimaceIndex < 7.0 -> AmberWarning
-                                         else -> CoralAlarm
-                                     }
-                                 )
-                             ) {
-                                 Text(
-                                     text = res.painLevelClassification.uppercase(),
-                                     color = when {
-                                         res.maxPainGrimaceIndex < 3.0 -> GreenSuccess
-                                         res.maxPainGrimaceIndex < 7.0 -> AmberWarning
-                                         else -> CoralAlarm
-                                     },
-                                     fontWeight = FontWeight.Bold,
-                                     fontSize = 10.sp,
-                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                 )
-                             }
-                         }
-
-                         Spacer(modifier = Modifier.height(12.dp))
-
-                         // Visual progress slider indicator for Grimace
-                         Slider(
-                             value = res.maxPainGrimaceIndex.toFloat(),
-                             onValueChange = {},
-                             valueRange = 0f..10f,
-                             enabled = false,
-                             colors = SliderDefaults.colors(
-                                 disabledThumbColor = when {
-                                     res.maxPainGrimaceIndex < 3.0 -> GreenSuccess
-                                     res.maxPainGrimaceIndex < 7.0 -> AmberWarning
-                                     else -> CoralAlarm
-                                 },
-                                 disabledActiveTrackColor = when {
-                                     res.maxPainGrimaceIndex < 3.0 -> GreenSuccess
-                                     res.maxPainGrimaceIndex < 7.0 -> AmberWarning
-                                     else -> CoralAlarm
-                                 },
-                                 disabledInactiveTrackColor = SlateBorder
-                             )
-                         )
-                     }
-                }
-
-                // AI clinical observations detail card
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = SlateCard),
-                    border = BorderStroke(1.dp, SlateBorder),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
+                // Grimace card
+                Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = SlateCard), border = BorderStroke(1.dp, SlateBorder), shape = RoundedCornerShape(14.dp)) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = "AI Clinical Safety Diagnostics & Feedback",
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            style = MaterialTheme.typography.titleSmall
-                        )
-
-                        HorizontalDivider(color = SlateBorder, modifier = Modifier.padding(vertical = 10.dp))
-
-                        Row(verticalAlignment = Alignment.Top) {
-                            Icon(imageVector = Icons.Default.ContactSupport, contentDescription = "Safety", tint = ClinicalTeal, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text(
-                                text = "Safety Observation: ${res.safetyAssessment}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color.White,
-                                lineHeight = 16.sp
-                            )
+                        Text("2. Facial Pain Analysis", fontWeight = FontWeight.Bold, color = MintSecondary, fontSize = 14.sp)
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Column {
+                                Text("Grimace Index", style = MaterialTheme.typography.bodySmall, color = TextBody)
+                                Row(verticalAlignment = Alignment.Bottom) {
+                                    Text("${res.maxPainGrimaceIndex}", fontSize = 28.sp, fontWeight = FontWeight.Black, color = TextTitle)
+                                    Text("/10", fontSize = 14.sp, color = TextBody, modifier = Modifier.padding(bottom = 4.dp, start = 2.dp))
+                                }
+                            }
+                            val pColor = when { res.maxPainGrimaceIndex < 3.0 -> GreenSuccess; res.maxPainGrimaceIndex < 7.0 -> AmberWarning; else -> CoralAlarm }
+                            val pSurface = when { res.maxPainGrimaceIndex < 3.0 -> GreenSuccessSurface; res.maxPainGrimaceIndex < 7.0 -> AmberWarningSurface; else -> CoralAlarmSurface }
+                            Surface(shape = RoundedCornerShape(6.dp), color = pSurface, border = BorderStroke(1.dp, pColor)) {
+                                Text(res.painLevelClassification.uppercase(), color = pColor, fontWeight = FontWeight.Bold, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                            }
                         }
-
                         Spacer(modifier = Modifier.height(12.dp))
+                        Slider(value = res.maxPainGrimaceIndex.toFloat(), onValueChange = {}, valueRange = 0f..10f, enabled = false, colors = SliderDefaults.colors(
+                            disabledThumbColor = when { res.maxPainGrimaceIndex < 3.0 -> GreenSuccess; res.maxPainGrimaceIndex < 7.0 -> AmberWarning; else -> CoralAlarm },
+                            disabledActiveTrackColor = when { res.maxPainGrimaceIndex < 3.0 -> GreenSuccess; res.maxPainGrimaceIndex < 7.0 -> AmberWarning; else -> CoralAlarm },
+                            disabledInactiveTrackColor = SlateBorder
+                        ))
+                    }
+                }
 
+                // Clinical feedback card
+                Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = SlateCard), border = BorderStroke(1.dp, SlateBorder), shape = RoundedCornerShape(14.dp)) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text("AI Clinical Feedback", fontWeight = FontWeight.Bold, color = TextTitle, style = MaterialTheme.typography.titleSmall)
+                        HorizontalDivider(color = SlateBorder, modifier = Modifier.padding(vertical = 10.dp))
                         Row(verticalAlignment = Alignment.Top) {
-                            Icon(imageVector = Icons.Default.Lightbulb, contentDescription = "Tips", tint = MintSecondary, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.ContactSupport, "Safety", tint = ClinicalTeal, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(10.dp))
-                            Text(
-                                text = "Kinetic Advice: ${res.activityAdvice}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextBody,
-                                lineHeight = 16.sp
-                            )
+                            Text("Safety: ${res.safetyAssessment}", style = MaterialTheme.typography.bodySmall, color = TextBody, lineHeight = 16.sp)
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(verticalAlignment = Alignment.Top) {
+                            Icon(Icons.Default.Lightbulb, "Tips", tint = MintSecondary, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text("Advice: ${res.activityAdvice}", style = MaterialTheme.typography.bodySmall, color = TextBody, lineHeight = 16.sp)
                         }
                     }
                 }
 
-                // Substantial integration with Room log workout history!
+                // Save button
                 var progressSaved by remember { mutableStateOf(false) }
-                
                 Button(
                     onClick = {
-                        val painLogIndex = res.maxPainGrimaceIndex.toInt().coerceIn(1, 10)
-                        viewModel.logWorkout(
-                            programId = activeProgram?.id ?: 0L,
-                            exerciseTitle = "[Video Scan] $task",
-                            sets = 1,
-                            reps = 1,
-                            painPre = painLogIndex,
-                            painPost = painLogIndex,
-                            note = "VLM Video Assessment ROM: ${res.calculatedRomDegrees}°. Face grimace indices: ${res.maxPainGrimaceIndex}/10. ${res.safetyAssessment}"
-                        )
+                        viewModel.logWorkout(programId = activeProgram?.id ?: 0L, exerciseTitle = "[Video] $task", sets = 1, reps = 1, painPre = res.maxPainGrimaceIndex.toInt().coerceIn(1, 10), painPost = res.maxPainGrimaceIndex.toInt().coerceIn(1, 10), note = "ROM: ${res.calculatedRomDegrees}°. Grimace: ${res.maxPainGrimaceIndex}/10.")
                         progressSaved = true
                     },
                     enabled = !progressSaved,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (progressSaved) Color.DarkGray else GreenSuccess,
-                        contentColor = Color.White
-                    ),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .testTag("save_finished_log_action")
+                    colors = ButtonDefaults.buttonColors(containerColor = if (progressSaved) SlateBorder else GreenSuccess, contentColor = if (progressSaved) TextMuted else TextOnAccent),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth().height(48.dp).testTag("save_finished_log_action")
                 ) {
-                    Icon(
-                        imageVector = if (progressSaved) Icons.Default.CheckCircle else Icons.Default.Save,
-                        contentDescription = "Save",
-                        modifier = Modifier.size(16.dp)
-                    )
+                    Icon(if (progressSaved) Icons.Default.CheckCircle else Icons.Default.Save, "Save", modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = if (progressSaved) "Saved to Workout History!" else "Log Results to Daily Progress History",
-                        fontWeight = FontWeight.Bold
-                    )
+                    Text(if (progressSaved) "Saved!" else "Save to History", fontWeight = FontWeight.Bold)
                 }
 
                 Button(
                     onClick = { viewModel.clearVideoAnalysis() },
                     colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = TextBody),
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RoundedCornerShape(12.dp),
                     border = BorderStroke(1.dp, SlateBorder),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
                 ) {
-                    Text("Analyze Another Performance", fontWeight = FontWeight.Bold)
+                    Text("Analyze Another", fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -1487,7 +2082,6 @@ private fun createSimulatedPerformanceBitmap(bodyArea: String, activityName: Str
     val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
     
-    // Draw background slate card colors
     canvas.drawColor(SlateCard.toArgb())
 
     val accentColor = when (performanceType) {
@@ -1496,380 +2090,89 @@ private fun createSimulatedPerformanceBitmap(bodyArea: String, activityName: Str
         else -> CoralAlarm.toArgb()
     }
 
-    // Grid details
-    val gridPaint = Paint().apply {
-        color = Color(0x1B000000).toArgb()
-        strokeWidth = 1.5f
-    }
+    val gridPaint = Paint().apply { color = android.graphics.Color.argb(15, 255, 255, 255); strokeWidth = 1f }
     for (i in 0..size step 32) {
         canvas.drawLine(i.toFloat(), 0f, i.toFloat(), size.toFloat(), gridPaint)
         canvas.drawLine(0f, i.toFloat(), size.toFloat(), i.toFloat(), gridPaint)
     }
 
-    // Draw stylized camera overlays
-    val uiPaint = Paint().apply {
-        color = Color(0x8A000000).toArgb()
-        textSize = 14f
-        isAntiAlias = true
-    }
+    val uiPaint = Paint().apply { color = TextBody.toArgb(); textSize = 14f; isAntiAlias = true }
     canvas.drawText("REC [AI SCAN]", 30f, 40f, uiPaint)
     canvas.drawText("FPS: 30 / VLM V2", 30f, size - 30f, uiPaint)
 
-    // Blinking REC Indicator
-    val recPaint = Paint().apply {
-        color = CoralAlarm.toArgb()
-        style = Paint.Style.FILL
-    }
+    val recPaint = Paint().apply { color = CoralAlarm.toArgb(); style = Paint.Style.FILL }
     canvas.drawCircle(size - 40f, 32f, 6f, recPaint)
 
-    // Body Joint Bone lines
-    val bonePaint = Paint().apply {
-        color = TextTitle.toArgb()
-        strokeWidth = 12f
-        strokeCap = Paint.Cap.ROUND
-    }
+    val bonePaint = Paint().apply { color = TextTitle.toArgb(); strokeWidth = 12f; strokeCap = Paint.Cap.ROUND }
+    val jointIndicatorPaint = Paint().apply { color = accentColor; style = Paint.Style.STROKE; strokeWidth = 3f }
+    val jointFillPaint = Paint().apply { color = accentColor; style = Paint.Style.FILL }
 
-    val jointIndicatorPaint = Paint().apply {
-        color = accentColor
-        style = Paint.Style.STROKE
-        strokeWidth = 3f
-    }
-
-    val jointFillPaint = Paint().apply {
-        color = accentColor
-        style = Paint.Style.FILL
-    }
-
-    // Draw bone configurations depending on Body Area
     when (bodyArea.uppercase()) {
         "KNEE" -> {
-            val romAngle = when (performanceType) {
-                "Pain-Free / Normal Space" -> 125.0
-                "Mild Pinch / Guarding" -> 95.0
-                else -> 65.0
-            }
-            // Draw hip, knee coordinate
+            val romAngle = when (performanceType) { "Pain-Free / Normal Space" -> 125.0; "Mild Pinch / Guarding" -> 95.0; else -> 65.0 }
             canvas.drawLine(150f, 150f, 250f, 260f, bonePaint)
-            // Draw knee to foot coordinate based on angle
             val angleRad = java.lang.Math.toRadians(romAngle)
             val footX = (250.0 - 120.0 * java.lang.Math.cos(angleRad)).toFloat()
             val footY = (260.0 + 120.0 * java.lang.Math.sin(angleRad)).toFloat()
             canvas.drawLine(250f, 260f, footX, footY, bonePaint)
-
             canvas.drawCircle(250f, 260f, 12f, jointFillPaint)
             canvas.drawCircle(250f, 260f, 30f, jointIndicatorPaint)
         }
         "SHOULDER" -> {
-            val romAngle = when (performanceType) {
-                "Pain-Free / Normal Space" -> 155.0
-                "Mild Pinch / Guarding" -> 110.0
-                else -> 75.0
-            }
-            canvas.drawLine(250f, 320f, 250f, 220f, bonePaint) // Spines to Shoulder
+            val romAngle = when (performanceType) { "Pain-Free / Normal Space" -> 155.0; "Mild Pinch / Guarding" -> 110.0; else -> 75.0 }
+            canvas.drawLine(250f, 320f, 250f, 220f, bonePaint)
             val angleRad = java.lang.Math.toRadians(romAngle - 90.0)
             val armX = (250.0 + 130.0 * java.lang.Math.cos(angleRad)).toFloat()
             val armY = (220.0 - 130.0 * java.lang.Math.sin(angleRad)).toFloat()
             canvas.drawLine(250f, 220f, armX, armY, bonePaint)
-
             canvas.drawCircle(250f, 220f, 12f, jointFillPaint)
             canvas.drawCircle(250f, 220f, 30f, jointIndicatorPaint)
         }
         else -> {
-            // General limbs
             canvas.drawLine(160f, 256f, 256f, 256f, bonePaint)
             canvas.drawLine(256f, 256f, 350f, 200f, bonePaint)
             canvas.drawCircle(256f, 256f, 12f, jointFillPaint)
         }
     }
 
-    // DRAW FACIAL GRIMACE METRIC BOX AT CORNER (High accuracy pain expressions HUD!)
-    val faceBoxPaint = Paint().apply {
-        color = accentColor
-        style = Paint.Style.STROKE
-        strokeWidth = 2f
-    }
-    // Draw face HUD box at top right
-    val boxLeft = size - 150f
-    val boxTop = 60f
-    val boxRight = size - 30f
-    val boxBottom = 180f
+    // Face HUD
+    val faceBoxPaint = Paint().apply { color = accentColor; style = Paint.Style.STROKE; strokeWidth = 2f }
+    val boxLeft = size - 150f; val boxTop = 60f; val boxRight = size - 30f; val boxBottom = 180f
     canvas.drawRect(boxLeft, boxTop, boxRight, boxBottom, faceBoxPaint)
     canvas.drawText("FACE LOG", boxLeft + 10f, boxTop + 20f, uiPaint)
 
-    // Draw simple computerized face inside box representing different pain expression levels
     val faceCenterY = (boxTop + boxBottom) / 2 + 10f
     val faceCenterX = (boxLeft + boxRight) / 2
+    val faceStrokePaint = Paint().apply { color = TextTitle.toArgb(); style = Paint.Style.STROKE; strokeWidth = 3f; isAntiAlias = true }
 
-    val faceStrokePaint = Paint().apply {
-        color = TextTitle.toArgb()
-        style = Paint.Style.STROKE
-        strokeWidth = 3f
-        isAntiAlias = true
-    }
-
-    canvas.drawCircle(faceCenterX, faceCenterY, 30f, faceStrokePaint) // Face circle outline
+    canvas.drawCircle(faceCenterX, faceCenterY, 30f, faceStrokePaint)
 
     when (performanceType) {
         "Pain-Free / Normal Space" -> {
-            // Cheerful smile eyes
             canvas.drawLine(faceCenterX - 10f, faceCenterY - 10f, faceCenterX - 6f, faceCenterY - 12f, faceStrokePaint)
             canvas.drawLine(faceCenterX + 6f, faceCenterY - 12f, faceCenterX + 10f, faceCenterY - 10f, faceStrokePaint)
-            // Curved smile
-            val path = android.graphics.Path().apply {
-                val rect = android.graphics.RectF(faceCenterX - 12f, faceCenterY - 5f, faceCenterX + 12f, faceCenterY + 15f)
-                addArc(rect, 0f, 180f)
-            }
+            val path = android.graphics.Path().apply { addArc(android.graphics.RectF(faceCenterX - 12f, faceCenterY - 5f, faceCenterX + 12f, faceCenterY + 15f), 0f, 180f) }
             canvas.drawPath(path, faceStrokePaint)
         }
         "Mild Pinch / Guarding" -> {
-            // Squinting eyes / straight brows
             canvas.drawLine(faceCenterX - 12f, faceCenterY - 10f, faceCenterX - 4f, faceCenterY - 10f, faceStrokePaint)
             canvas.drawLine(faceCenterX + 4f, faceCenterY - 10f, faceCenterX + 12f, faceCenterY - 10f, faceStrokePaint)
-            // Slightly furrowed lips
             canvas.drawLine(faceCenterX - 10f, faceCenterY + 10f, faceCenterX + 10f, faceCenterY + 10f, faceStrokePaint)
         }
-        else -> { // Severe Pain
-            // Heavily tensed furrowed eyebrows (V shape)
+        else -> {
             canvas.drawLine(faceCenterX - 12f, faceCenterY - 14f, faceCenterX - 4f, faceCenterY - 10f, faceStrokePaint)
             canvas.drawLine(faceCenterX + 4f, faceCenterY - 10f, faceCenterX + 12f, faceCenterY - 14f, faceStrokePaint)
-            // Tight closed eyes X X
             canvas.drawLine(faceCenterX - 10f, faceCenterY - 8f, faceCenterX - 4f, faceCenterY - 5f, faceStrokePaint)
             canvas.drawLine(faceCenterX - 10f, faceCenterY - 5f, faceCenterX - 4f, faceCenterY - 8f, faceStrokePaint)
             canvas.drawLine(faceCenterX + 4f, faceCenterY - 8f, faceCenterX + 10f, faceCenterY - 5f, faceStrokePaint)
             canvas.drawLine(faceCenterX + 4f, faceCenterY - 5f, faceCenterX + 10f, faceCenterY - 8f, faceStrokePaint)
-            // Grimacing open mouth
             canvas.drawRect(faceCenterX - 10f, faceCenterY + 6f, faceCenterX + 10f, faceCenterY + 16f, faceStrokePaint)
         }
     }
 
-    // Overlay text showing current Pain Grimace tracker level
-    val overlayTextPaint = Paint().apply {
-        color = accentColor
-        textSize = 14f
-        isAntiAlias = true
-        typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
-    }
-    val scoreText = when (performanceType) {
-        "Pain-Free / Normal Space" -> "GRIMACE: 0.8/10"
-        "Mild Pinch / Guarding" -> "GRIMACE: 4.2/10"
-        else -> "GRIMACE: 8.6/10 !!"
-    }
+    val overlayTextPaint = Paint().apply { color = accentColor; textSize = 14f; isAntiAlias = true; typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD) }
+    val scoreText = when (performanceType) { "Pain-Free / Normal Space" -> "GRIMACE: 0.8/10"; "Mild Pinch / Guarding" -> "GRIMACE: 4.2/10"; else -> "GRIMACE: 8.6/10 !!" }
     canvas.drawText(scoreText, boxLeft + 10f, boxBottom - 10f, overlayTextPaint)
 
     return bitmap
-}
-
-@Composable
-fun AiSupportChatTab(viewModel: RehabViewModel) {
-    val chatMessages by viewModel.chatMessages.collectAsState()
-    val isSending by viewModel.isSendingMessage.collectAsState()
-    val chatError by viewModel.chatError.collectAsState()
-    
-    var messageText by remember { mutableStateOf("") }
-    val listState = rememberLazyListState()
-
-    // Automatically scroll to bottom when a new message is received
-    LaunchedEffect(chatMessages.size) {
-        if (chatMessages.isNotEmpty()) {
-            listState.animateScrollToItem(chatMessages.size - 1)
-        }
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(bottom = 16.dp)
-            .background(Color.Transparent)
-    ) {
-        // Chat Area
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .background(SlateCard.copy(alpha = 0.6f))
-                .border(BorderStroke(1.dp, SlateBorder), RoundedCornerShape(12.dp))
-                .padding(12.dp)
-        ) {
-            if (chatMessages.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        text = "Your conversation is empty. Say hello to begin!",
-                        color = TextBody,
-                        fontSize = 13.sp
-                    )
-                }
-            } else {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(chatMessages) { message ->
-                        val isUser = message.sender == "USER"
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(
-                                    topStart = 16.dp,
-                                    topEnd = 16.dp,
-                                    bottomStart = if (isUser) 16.dp else 2.dp,
-                                    bottomEnd = if (isUser) 2.dp else 16.dp
-                                ),
-                                color = if (isUser) ClinicalTeal else SlateBorder,
-                                contentColor = if (isUser) Color.Black else TextTitle,
-                                modifier = Modifier
-                                    .widthIn(max = 280.dp)
-                                    .padding(vertical = 2.dp)
-                            ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    Text(
-                                        text = message.text,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontSize = 14.sp,
-                                        lineHeight = 18.sp
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    if (isSending) {
-                        item {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.Start
-                            ) {
-                                Surface(
-                                    shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomEnd = 16.dp, bottomStart = 2.dp),
-                                    color = SlateBorder,
-                                    modifier = Modifier.padding(vertical = 4.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(12.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(16.dp),
-                                            color = ClinicalTeal,
-                                            strokeWidth = 2.dp
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = "Joints AI is thinking...",
-                                            color = TextBody,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    chatError?.let { err ->
-                        item {
-                            Surface(
-                                color = CoralAlarm.copy(alpha = 0.15f),
-                                border = BorderStroke(1.dp, CoralAlarm),
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
-                            ) {
-                                Text(
-                                    text = err,
-                                    color = CoralAlarm,
-                                    fontSize = 12.sp,
-                                    modifier = Modifier.padding(12.dp),
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // Input Area
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            OutlinedTextField(
-                value = messageText,
-                onValueChange = { messageText = it },
-                placeholder = { Text("Ask about safety guidelines, sets/reps...", color = TextBody) },
-                modifier = Modifier.weight(1f).testTag("chat_input_text_field"),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = ClinicalTeal,
-                    unfocusedBorderColor = SlateBorder,
-                    focusedTextColor = TextTitle,
-                    unfocusedTextColor = TextTitle,
-                    focusedContainerColor = SlateCard,
-                    unfocusedContainerColor = SlateCard
-                ),
-                shape = RoundedCornerShape(12.dp),
-                maxLines = 3,
-                singleLine = false,
-                trailingIcon = {
-                    if (messageText.isNotEmpty()) {
-                        IconButton(onClick = { messageText = "" }) {
-                            Icon(imageVector = Icons.Default.Clear, contentDescription = "Clear", tint = TextBody)
-                        }
-                    }
-                }
-            )
-
-            Button(
-                onClick = {
-                    if (messageText.isNotBlank()) {
-                        viewModel.sendChatMessage(messageText)
-                        messageText = ""
-                    }
-                },
-                enabled = messageText.isNotBlank() && !isSending,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = ClinicalTeal,
-                    contentColor = Color.Black,
-                    disabledContainerColor = ClinicalTeal.copy(alpha = 0.5f)
-                ),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.size(56.dp).testTag("chat_send_button"),
-                contentPadding = PaddingValues(0.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Send,
-                    contentDescription = "Send",
-                    tint = Color.Black,
-                    modifier = Modifier.size(24.dp)
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Reset/Clear History Button
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End
-        ) {
-            TextButton(
-                onClick = { viewModel.clearChat() },
-                colors = ButtonDefaults.textButtonColors(contentColor = TextBody)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.DeleteSweep,
-                    contentDescription = "Clear Chat",
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Clear History", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            }
-        }
-    }
 }

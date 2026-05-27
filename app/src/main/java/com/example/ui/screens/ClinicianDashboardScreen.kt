@@ -42,14 +42,13 @@ fun ClinicianDashboardScreen(
     var selectedProgram by remember { mutableStateOf<ExerciseProgram?>(null) }
     var visibleReviewModal by remember { mutableStateOf(false) }
 
-    // Inside dynamic review variables
     var therapistName by remember { mutableStateOf("Sarah Adams, DPT") }
     var therapistNotes by remember { mutableStateOf("") }
     val editableExercises = remember { mutableStateListOf<Exercise>() }
 
     LaunchedEffect(selectedProgram) {
         selectedProgram?.let { prog ->
-            therapistNotes = "Vetted for general knee/hip stability. Increase reps as soreness subsides."
+            therapistNotes = "Vetted for general joint stability. Increase reps as soreness subsides."
             editableExercises.clear()
             editableExercises.addAll(prog.exercises)
         }
@@ -58,7 +57,7 @@ fun ClinicianDashboardScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Clinical Review Console", color = TextTitle, fontWeight = FontWeight.Bold) },
+                title = { Text("Clinician Console", color = TextTitle, fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(imageVector = Icons.Default.Close, contentDescription = "Close", tint = TextTitle)
@@ -80,26 +79,42 @@ fun ClinicianDashboardScreen(
                     .fillMaxSize()
                     .padding(horizontal = 24.dp)
             ) {
-                // Header clinical banner
+                // Header banner
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 12.dp),
-                    colors = CardDefaults.cardColors(containerColor = ClinicalTeal.copy(alpha = 0.08f)),
-                    border = BorderStroke(1.dp, ClinicalTeal)
+                    colors = CardDefaults.cardColors(containerColor = ClinicalTealSurface),
+                    border = BorderStroke(1.dp, ClinicalTeal.copy(alpha = 0.3f)),
+                    shape = RoundedCornerShape(16.dp)
                 ) {
                     Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(imageVector = Icons.Default.VerifiedUser, contentDescription = "Clinical Secure", tint = ClinicalTeal, modifier = Modifier.size(24.dp))
+                        Icon(
+                            imageVector = Icons.Default.VerifiedUser,
+                            contentDescription = "Clinical Secure",
+                            tint = ClinicalTeal,
+                            modifier = Modifier.size(24.dp)
+                        )
                         Spacer(modifier = Modifier.width(16.dp))
                         Column {
-                            Text("Professional Supervision Desk", color = TextTitle, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            Text("Review, optimize sets/reps of AI-drafted routines, and approve logs for patient practice.", color = TextBody, fontSize = 11.sp, lineHeight = 14.sp)
+                            Text(
+                                "Professional Supervision",
+                                color = TextTitle,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                            Text(
+                                "Review and approve AI-drafted rehabilitation programs.",
+                                color = TextBody,
+                                fontSize = 11.sp,
+                                lineHeight = 14.sp
+                            )
                         }
                     }
                 }
 
                 Text(
-                    text = "Pending Plan Sign-offs (${pendingPrograms.size})",
+                    text = "Pending Reviews (${pendingPrograms.size})",
                     fontWeight = FontWeight.Bold,
                     color = TextTitle,
                     fontSize = 16.sp,
@@ -122,14 +137,14 @@ fun ClinicianDashboardScreen(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "Review Queue Cleared",
+                            text = "Queue Cleared",
                             color = TextTitle,
                             fontWeight = FontWeight.Bold,
                             fontSize = 16.sp
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "All AI-generated files signed-off. No pending assessments currently require clinician interaction.",
+                            text = "All AI-generated plans have been reviewed. No pending assessments require attention.",
                             color = TextBody,
                             fontSize = 12.sp,
                             textAlign = TextAlign.Center,
@@ -144,7 +159,6 @@ fun ClinicianDashboardScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         itemsIndexed(pendingPrograms) { _, prog ->
-                            // Match relevant assessment details to reveal ROM statistics
                             val matchAssess = assessments.find { it.id == prog.assessmentId }
 
                             Surface(
@@ -155,7 +169,7 @@ fun ClinicianDashboardScreen(
                                         visibleReviewModal = true
                                     }
                                     .testTag("pending_program_review_${prog.id}"),
-                                shape = RoundedCornerShape(10.dp),
+                                shape = RoundedCornerShape(14.dp),
                                 color = SlateCard,
                                 border = BorderStroke(1.dp, SlateBorder)
                             ) {
@@ -173,15 +187,15 @@ fun ClinicianDashboardScreen(
                                         )
 
                                         Surface(
-                                            shape = RoundedCornerShape(4.dp),
-                                            color = ClinicalTeal.copy(alpha = 0.08f)
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = ClinicalTealSurface
                                         ) {
                                             Text(
                                                 text = prog.bodyArea.replace("_", " "),
                                                 color = ClinicalTeal,
                                                 fontSize = 10.sp,
                                                 fontWeight = FontWeight.Medium,
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                                             )
                                         }
                                     }
@@ -190,7 +204,7 @@ fun ClinicianDashboardScreen(
 
                                     matchAssess?.let { ass ->
                                         Text(
-                                            text = "Patient Report: \"${ass.freeTextDescription}\"",
+                                            text = "\"${ass.freeTextDescription}\"",
                                             color = TextBody,
                                             fontSize = 12.sp,
                                             lineHeight = 16.sp
@@ -209,7 +223,7 @@ fun ClinicianDashboardScreen(
                                                 )
                                                 Spacer(modifier = Modifier.width(6.dp))
                                                 Text(
-                                                    text = "Vision Scan ROM: ${ass.scanAngleResult}° verified angle restrictions.",
+                                                    text = "ROM: ${ass.scanAngleResult}° measured",
                                                     color = MintSecondary,
                                                     fontSize = 11.sp,
                                                     fontWeight = FontWeight.Bold
@@ -225,7 +239,7 @@ fun ClinicianDashboardScreen(
                                         horizontalArrangement = Arrangement.End
                                     ) {
                                         Text(
-                                            text = "Click to Review & Sign-off",
+                                            text = "Tap to Review →",
                                             color = ClinicalTeal,
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 12.sp
@@ -240,7 +254,7 @@ fun ClinicianDashboardScreen(
         }
     }
 
-    // Interactive Clinical review editor dialog sheet
+    // Review dialog
     if (visibleReviewModal && selectedProgram != null) {
         val prog = selectedProgram!!
         val matchingAssessment = assessments.find { it.id == prog.assessmentId }
@@ -249,13 +263,13 @@ fun ClinicianDashboardScreen(
             onDismissRequest = { visibleReviewModal = false },
             title = {
                 Text(
-                    text = "Vetting Treatment Plan",
+                    text = "Review Treatment Plan",
                     fontWeight = FontWeight.Black,
                     color = TextTitle,
                     fontSize = 18.sp
                 )
             },
-            containerColor = SlateCard,
+            containerColor = SlateCardElevated,
             confirmButton = {
                 Button(
                     onClick = {
@@ -269,22 +283,22 @@ fun ClinicianDashboardScreen(
                         selectedProgram = null
                     },
                     modifier = Modifier.testTag("clinician_approve_decision_button"),
-                    colors = ButtonDefaults.buttonColors(containerColor = GreenSuccess, contentColor = Color.White),
-                    shape = RoundedCornerShape(8.dp)
+                    colors = ButtonDefaults.buttonColors(containerColor = GreenSuccess, contentColor = TextOnAccent),
+                    shape = RoundedCornerShape(10.dp)
                 ) {
-                    Text("Approve & Activate Program", fontWeight = FontWeight.Bold)
+                    Text("Approve & Activate", fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 TextButton(
                     onClick = {
-                        viewModel.rejectProgram(prog.id, "Rejected as inappropriate by clinician reviewer.")
+                        viewModel.rejectProgram(prog.id, "Rejected by clinician reviewer.")
                         visibleReviewModal = false
                         selectedProgram = null
                     },
                     modifier = Modifier.testTag("clinician_reject_decision_button")
                 ) {
-                    Text("Reject Plan", color = CoralAlarm)
+                    Text("Reject", color = CoralAlarm)
                 }
             },
             text = {
@@ -294,24 +308,65 @@ fun ClinicianDashboardScreen(
                         .height(350.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // Patient Intake summary
+                    // Patient summary
                     item {
                         Card(
-                            colors = CardDefaults.cardColors(containerColor = SlateBg),
-                            border = BorderStroke(1.dp, SlateBorder)
+                            colors = CardDefaults.cardColors(containerColor = SlateBgElevated),
+                            border = BorderStroke(1.dp, SlateBorder),
+                            shape = RoundedCornerShape(12.dp)
                         ) {
                             Column(modifier = Modifier.padding(12.dp)) {
-                                Text("Patient Pain Background", color = MintSecondary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                Text("Patient Background", color = MintSecondary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                 Spacer(modifier = Modifier.height(4.dp))
-                                Text("Description: \"${matchingAssessment?.freeTextDescription ?: "Symptoms unknown"}\"", color = TextBody, fontSize = 11.sp, lineHeight = 15.sp)
+                                Text(
+                                    "\"${matchingAssessment?.freeTextDescription?.substringBefore("\n\n[Clinical AI") ?: "No description"}\"",
+                                    color = TextBody,
+                                    fontSize = 11.sp,
+                                    lineHeight = 15.sp
+                                )
                                 matchingAssessment?.scanAngleResult?.let { angle ->
-                                    Text("Calculated flexion flexion angle: $angle° (VLM Measured)", color = ClinicalTeal, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                    Text(
+                                        "Measured flexion: $angle°",
+                                        color = ClinicalTeal,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.sp
+                                    )
                                 }
                             }
                         }
                     }
 
-                    // Clinician Identity
+                    // AI Condition Diagnosis
+                    if (prog.conditionName != null) {
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = SlateBgElevated),
+                                border = BorderStroke(1.dp, AmberWarning.copy(alpha = 0.3f)),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.LocalHospital, null, tint = AmberWarning, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("AI Suspected Condition", color = AmberWarning, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    }
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = "${prog.conditionName} (${prog.conditionConfidence ?: 0}% confidence)",
+                                        color = TextTitle,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp
+                                    )
+                                    prog.conditionExplanation?.let { expl ->
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(expl, color = TextBody, fontSize = 11.sp, lineHeight = 15.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Therapist name
                     item {
                         OutlinedTextField(
                             value = therapistName,
@@ -322,23 +377,27 @@ fun ClinicianDashboardScreen(
                                 focusedBorderColor = ClinicalTeal,
                                 unfocusedBorderColor = SlateBorder,
                                 focusedTextColor = TextTitle,
-                                unfocusedTextColor = TextTitle
+                                unfocusedTextColor = TextTitle,
+                                cursorColor = ClinicalTeal,
+                                focusedLabelColor = ClinicalTeal,
+                                unfocusedLabelColor = TextBody
                             ),
-                            shape = RoundedCornerShape(8.dp)
+                            shape = RoundedCornerShape(10.dp)
                         )
                     }
 
-                    // Exercises modifier queue
+                    // Exercise editor
                     item {
-                        Text("Review AI-Drafted Drills", color = TextTitle, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Text("You can modify sets and repetitions of each exercise below:", color = TextBody, fontSize = 11.sp)
+                        Text("Review Exercises", color = TextTitle, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text("Modify sets and reps as needed:", color = TextBody, fontSize = 11.sp)
                     }
 
                     itemsIndexed(editableExercises) { idx, exercise ->
                         Card(
-                            colors = CardDefaults.cardColors(containerColor = SlateBg),
+                            colors = CardDefaults.cardColors(containerColor = SlateBgElevated),
                             border = BorderStroke(1.dp, SlateBorder),
-                            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)
                         ) {
                             Row(
                                 modifier = Modifier.padding(10.dp),
@@ -354,7 +413,6 @@ fun ClinicianDashboardScreen(
                                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    // Sets modifier text field
                                     OutlinedTextField(
                                         value = exercise.sets.toString(),
                                         onValueChange = { input ->
@@ -363,11 +421,16 @@ fun ClinicianDashboardScreen(
                                         },
                                         modifier = Modifier.width(52.dp).testTag("exercise_set_input_$idx"),
                                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = TextTitle, unfocusedTextColor = TextTitle)
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedTextColor = TextTitle,
+                                            unfocusedTextColor = TextTitle,
+                                            focusedBorderColor = ClinicalTeal,
+                                            unfocusedBorderColor = SlateBorder,
+                                            cursorColor = ClinicalTeal
+                                        )
                                     )
                                     Text("sets", fontSize = 11.sp, color = TextBody)
 
-                                    // Reps modifier text field
                                     OutlinedTextField(
                                         value = exercise.reps.toString(),
                                         onValueChange = { input ->
@@ -376,7 +439,13 @@ fun ClinicianDashboardScreen(
                                         },
                                         modifier = Modifier.width(52.dp).testTag("exercise_rep_input_$idx"),
                                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                        colors = OutlinedTextFieldDefaults.colors(focusedTextColor = TextTitle, unfocusedTextColor = TextTitle)
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedTextColor = TextTitle,
+                                            unfocusedTextColor = TextTitle,
+                                            focusedBorderColor = ClinicalTeal,
+                                            unfocusedBorderColor = SlateBorder,
+                                            cursorColor = ClinicalTeal
+                                        )
                                     )
                                     Text("reps", fontSize = 11.sp, color = TextBody)
                                 }
@@ -384,20 +453,23 @@ fun ClinicianDashboardScreen(
                         }
                     }
 
-                    // Feedback comments
+                    // Feedback notes
                     item {
                         OutlinedTextField(
                             value = therapistNotes,
                             onValueChange = { therapistNotes = it },
-                            label = { Text("Clinical Feedback & Exercises Instructions") },
+                            label = { Text("Clinical Feedback & Notes") },
                             modifier = Modifier.fillMaxWidth().height(100.dp).testTag("clinician_notes_input"),
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = ClinicalTeal,
                                 unfocusedBorderColor = SlateBorder,
                                 focusedTextColor = TextTitle,
-                                unfocusedTextColor = TextTitle
+                                unfocusedTextColor = TextTitle,
+                                cursorColor = ClinicalTeal,
+                                focusedLabelColor = ClinicalTeal,
+                                unfocusedLabelColor = TextBody
                             ),
-                            shape = RoundedCornerShape(8.dp)
+                            shape = RoundedCornerShape(10.dp)
                         )
                     }
                 }

@@ -32,7 +32,8 @@ data class Exercise(
     val sets: Int,
     val reps: Int,
     val durationSeconds: Int = 0,
-    val illustrationKey: String = "general_stretch", // maps to specific vector icon
+    val illustrationKey: String = "general_stretch",
+    val videoSearchQuery: String = "", // YouTube search query for video demo
 )
 
 @Entity(tableName = "user_assessments")
@@ -41,10 +42,12 @@ data class UserAssessment(
     val bodyArea: String, // from BodyArea enum name
     val painIntensity: Int, // 0 to 10
     val freeTextDescription: String,
-    val rangeOfMotionQuestionChecked: Boolean, // e.g. restriction noted
+    val rangeOfMotionQuestionChecked: Boolean,
     val triageStatus: String, // from TriageStatus enum name
     val triageReason: String,
-    val scanAngleResult: Double? = null, // Mock angle or calculated by Vision Model
+    val scanAngleResult: Double? = null,
+    val selectedMovement: String? = null,    // e.g. "Knee Flexion (Heel to glute)"
+    val targetAngle: Int? = null,            // e.g. 90
     val timestamp: Long = System.currentTimeMillis()
 )
 
@@ -60,6 +63,9 @@ data class ExerciseProgram(
     val therapistName: String? = null,
     val feedbackRating: Int? = null,
     val feedbackText: String? = null,
+    val conditionName: String? = null,       // AI-suggested condition e.g. "FAI / Pincer Impingement"
+    val conditionConfidence: Int? = null,     // 0-100 confidence percentage
+    val conditionExplanation: String? = null, // brief explanation of the condition
     val timestamp: Long = System.currentTimeMillis()
 )
 

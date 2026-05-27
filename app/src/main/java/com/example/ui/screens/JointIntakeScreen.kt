@@ -23,6 +23,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -59,8 +60,8 @@ fun rememberTextToSpeech(): TextToSpeechState {
             override fun speak(text: String) {
                 if (isInitialized) {
                     tts?.let { t ->
-                        t.setPitch(1.15f) // Slightly higher pitch for clear female voice
-                        t.setSpeechRate(0.92f) // Comfortable pace
+                        t.setPitch(1.15f)
+                        t.setSpeechRate(0.92f)
                         try {
                             val femaleVoice = t.voices?.firstOrNull { 
                                 it.name.contains("female", ignoreCase = true) || 
@@ -103,15 +104,14 @@ fun rememberTextToSpeech(): TextToSpeechState {
 private fun triggerVoiceover(step: Int, area: BodyArea?, tts: TextToSpeechState) {
     val promptText = when (step) {
         1 -> {
-            "Welcome to Joints AI. I am your female virtual therapist assistant. Let us begin your profile setup. First, select the physical joint pain location on your screen to identify your custom therapy targets."
+            "Welcome to Joints AI. I am your virtual therapist assistant. Let us begin your profile setup. First, select the physical joint pain location on your screen to identify your custom therapy targets."
         }
         2 -> {
-            val selectedJointText = area?.displayName ?: "joint"
             "Step two. Let us log your subjective pain details. On a scale of one to ten, please rate your pain severity. Next, describe any pinch points, radiating numbness, or clicking in the text area below so we can run our automatic safety check."
         }
         3 -> {
             val selectedJointText = area?.displayName ?: "joint"
-            "Step three. We are ready to perform your Vision range of motion scan. What specific movement of your $selectedJointText should we record? And to what target angle? Please select the movement on your screen and drag the target angle slider. Remember, when you perform this movement for the camera scan, go only as far as you comfortable can. You must avoid pain as much as possible, and do not let the motion become painful."
+            "Step three. We are ready to perform your Vision range of motion scan. What specific movement of your $selectedJointText should we record? And to what target angle? Please select the movement on your screen and drag the target angle slider."
         }
         else -> ""
     }
@@ -140,7 +140,6 @@ fun JointIntakeScreen(
     val triage by viewModel.triageEvaluation.collectAsState()
     val isGenerating by viewModel.isGeneratingPlan.collectAsState()
 
-    // Interactive ROM Motion scan states answering the requirement
     var selectedMovement by remember { mutableStateOf("Flexion") }
     var targetAngle by remember { mutableStateOf(90) }
     var avoidPainChecked by remember { mutableStateOf(false) }
@@ -148,14 +147,12 @@ fun JointIntakeScreen(
 
     val tts = rememberTextToSpeech()
 
-    // Speak instantly on step transitions
     LaunchedEffect(currentStep, voiceoverGuidanceEnabled) {
         if (voiceoverGuidanceEnabled) {
             triggerVoiceover(currentStep, selectedArea, tts)
         }
     }
 
-    // Automatically set default movement suggested when body area changes
     LaunchedEffect(selectedArea) {
         selectedArea?.let {
             val suggestions = getMovementSuggestions(it)
@@ -168,7 +165,7 @@ fun JointIntakeScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Physical Pain Intake", color = TextTitle, fontWeight = FontWeight.Bold) },
+                title = { Text("Pain Assessment", color = TextTitle, fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = {
                         if (currentStep > 1) {
@@ -197,7 +194,7 @@ fun JointIntakeScreen(
                     .fillMaxSize()
                     .padding(horizontal = 24.dp)
             ) {
-                // Stepper Header indicators
+                // Stepper progress with gradient bars
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -207,18 +204,38 @@ fun JointIntakeScreen(
                 ) {
                     repeat(totalSteps) { idx ->
                         val active = idx + 1 <= currentStep
-                        val barColor = animateColorAsState(if (active) ClinicalTeal else SlateBorder)
+                        val barColor = animateColorAsState(
+                            if (active) ClinicalTeal else SlateBorder,
+                            label = "stepColor"
+                        )
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .height(6.dp)
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(barColor.value)
+                                .height(4.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .then(
+                                    if (active) Modifier.background(
+                                        Brush.horizontalGradient(listOf(ClinicalTeal, ClinicalTealLight))
+                                    )
+                                    else Modifier.background(barColor.value)
+                                )
                         )
                     }
                 }
 
-                // AI Guidance Mode Interactive Switcher Box
+                // Step label
+                Text(
+                    text = when (currentStep) {
+                        1 -> "Step 1 of 3 · Select Pain Area"
+                        2 -> "Step 2 of 3 · Describe Symptoms"
+                        else -> "Step 3 of 3 · Motion Assessment"
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                    color = TextMuted,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+
+                // AI Guidance toggle
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -242,7 +259,7 @@ fun JointIntakeScreen(
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "Clinical Therapist Guide Type",
+                                    text = "AI Voice Guide",
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.Bold,
                                     color = TextTitle
@@ -252,7 +269,7 @@ fun JointIntakeScreen(
                             Row(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(8.dp))
-                                    .background(SlateBg)
+                                    .background(SlateBgElevated)
                                     .padding(2.dp),
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
@@ -270,7 +287,7 @@ fun JointIntakeScreen(
                                         text = "Manual",
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (!voiceoverGuidanceEnabled) Color.White else TextBody
+                                        color = if (!voiceoverGuidanceEnabled) TextOnAccent else TextBody
                                     )
                                 }
                                 Box(
@@ -284,10 +301,10 @@ fun JointIntakeScreen(
                                         .padding(horizontal = 10.dp, vertical = 6.dp)
                                 ) {
                                     Text(
-                                        text = "AI Voiceover",
+                                        text = "AI Voice",
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (voiceoverGuidanceEnabled) Color.White else TextBody
+                                        color = if (voiceoverGuidanceEnabled) TextOnAccent else TextBody
                                     )
                                 }
                             }
@@ -301,7 +318,7 @@ fun JointIntakeScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text(
-                                    text = "👩‍⚕️ Professional Female AI Voice active",
+                                    text = "🔊 Voice guidance active",
                                     fontSize = 11.sp,
                                     color = ClinicalTeal,
                                     fontWeight = FontWeight.SemiBold
@@ -313,7 +330,7 @@ fun JointIntakeScreen(
                                     Icon(Icons.Default.Replay, contentDescription = null, tint = ClinicalTeal, modifier = Modifier.size(12.dp))
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text(
-                                        text = "Replay Audio",
+                                        text = "Replay",
                                         fontSize = 11.sp,
                                         color = ClinicalTeal,
                                         fontWeight = FontWeight.Bold
@@ -324,7 +341,7 @@ fun JointIntakeScreen(
                     }
                 }
 
-                // Step content routing
+                // Step content
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -363,7 +380,7 @@ fun JointIntakeScreen(
                     }
                 }
 
-                // Primary Bottom CTA Toolbar
+                // Bottom CTA
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -378,19 +395,19 @@ fun JointIntakeScreen(
                             },
                             modifier = Modifier
                                 .weight(1f)
-                                .height(50.dp),
-                            shape = RoundedCornerShape(10.dp),
+                                .height(52.dp),
+                            shape = RoundedCornerShape(14.dp),
                             border = BorderStroke(1.dp, SlateBorder),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = ClinicalTeal)
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = TextBody)
                         ) {
-                            Text("Previous")
+                            Text("Previous", fontWeight = FontWeight.SemiBold)
                         }
                     }
 
                     val isNextEnabled = when (currentStep) {
                         1 -> selectedArea != null
                         2 -> description.trim().isNotEmpty() && 
-                                triage?.status != TriageStatus.SEEK_EMERGENCY // Block progression if life threatening emergency flag hits!
+                                triage?.status != TriageStatus.SEEK_EMERGENCY
                         3 -> avoidPainChecked && selectedMovement.trim().isNotEmpty()
                         else -> true
                     }
@@ -402,11 +419,14 @@ fun JointIntakeScreen(
                                 tts.stop()
                             } else {
                                 tts.stop()
-                                // Enrich the final clinician description with the AI assessment choices!
+                                // Append motion context to description for AI prompt
                                 val targetMotionDetails = "\n\n[Clinical AI Motion Plan]: The patient plans to record the movement '$selectedMovement' aiming for a target flexion limit of $targetAngle°. The patient has pledged to avoid pain as much as possible, executing only up to the threshold of irritation."
                                 viewModel.setPainDescription(description + targetMotionDetails)
                                 
-                                viewModel.submitIntakeAndGeneratePlan { assessmentId ->
+                                viewModel.submitIntakeAndGeneratePlan(
+                                    selectedMovement = selectedMovement,
+                                    targetAngle = targetAngle
+                                ) { assessmentId ->
                                     onAssessmentCompleted(assessmentId)
                                 }
                             }
@@ -414,18 +434,18 @@ fun JointIntakeScreen(
                         enabled = isNextEnabled && !isGenerating,
                         modifier = Modifier
                             .weight(1f)
-                            .height(50.dp)
+                            .height(52.dp)
                             .testTag("next_assessment_step_button"),
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = if (currentStep == totalSteps) GreenSuccess else ClinicalTeal,
-                            contentColor = Color.White,
+                            contentColor = if (currentStep == totalSteps) TextOnAccent else TextOnAccent,
                             disabledContainerColor = SlateBorder,
-                            disabledContentColor = TextBody
+                            disabledContentColor = TextMuted
                         )
                     ) {
                         if (isGenerating) {
-                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
+                            CircularProgressIndicator(color = TextOnAccent, modifier = Modifier.size(24.dp))
                         } else {
                             Text(
                                 text = if (currentStep == totalSteps) "Submit to Review" else "Continue",
@@ -452,10 +472,10 @@ fun StepBodyArea(
             style = MaterialTheme.typography.headlineSmall,
             color = TextTitle,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(bottom = 8.dp)
+            modifier = Modifier.padding(bottom = 4.dp)
         )
         Text(
-            text = "Identify the orthopedic region where you are experiencing soreness, restricted flexion, or injury.",
+            text = "Identify the region where you're experiencing discomfort or restricted movement.",
             style = MaterialTheme.typography.bodyMedium,
             color = TextBody,
             modifier = Modifier.padding(bottom = 16.dp)
@@ -470,17 +490,20 @@ fun StepBodyArea(
             items(BodyArea.values()) { area ->
                 val isSelected = selected == area
                 val borderCol = if (isSelected) ClinicalTeal else SlateBorder
-                val bgCol = if (isSelected) ClinicalTeal.copy(alpha = 0.08f) else SlateCard
+                val bgCol = if (isSelected) ClinicalTealSurface else SlateCard
 
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(115.dp)
+                        .height(110.dp)
                         .clickable { onSelect(area) }
                         .testTag("body_area_${area.name}"),
                     colors = CardDefaults.cardColors(containerColor = bgCol),
-                    border = BorderStroke(1.dp, borderCol),
-                    shape = RoundedCornerShape(12.dp)
+                    border = BorderStroke(
+                        width = if (isSelected) 2.dp else 1.dp,
+                        color = borderCol
+                    ),
+                    shape = RoundedCornerShape(16.dp)
                 ) {
                     Column(
                         modifier = Modifier
@@ -492,13 +515,13 @@ fun StepBodyArea(
                         Icon(
                             imageVector = getAreaIcon(area),
                             contentDescription = area.displayName,
-                            tint = if (isSelected) ClinicalTeal else TextBody,
+                            tint = if (isSelected) ClinicalTealLight else TextBody,
                             modifier = Modifier.size(28.dp)
                         )
                         Spacer(modifier = Modifier.height(10.dp))
                         Text(
                             text = area.displayName,
-                            color = if (isSelected) ClinicalTeal else TextTitle,
+                            color = if (isSelected) ClinicalTealLight else TextTitle,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
                             textAlign = TextAlign.Center
@@ -526,7 +549,7 @@ fun StepPainDetails(
     ) {
         Column {
             Text(
-                text = "Log Pain Severity",
+                text = "Pain Severity",
                 style = MaterialTheme.typography.titleMedium,
                 color = TextTitle,
                 fontWeight = FontWeight.Bold,
@@ -536,7 +559,8 @@ fun StepPainDetails(
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = SlateCard),
-                border = BorderStroke(1.dp, SlateBorder)
+                border = BorderStroke(1.dp, SlateBorder),
+                shape = RoundedCornerShape(16.dp)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(
@@ -544,12 +568,17 @@ fun StepPainDetails(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.Bottom
                     ) {
-                        Text(text = "Rating: $intensity/10", fontWeight = FontWeight.Bold, color = ClinicalTeal, fontSize = 20.sp)
+                        Text(
+                            text = "$intensity/10",
+                            fontWeight = FontWeight.Black,
+                            color = getSeverityColor(intensity),
+                            fontSize = 28.sp
+                        )
                         Text(
                             text = getSeverityLabel(intensity),
                             color = getSeverityColor(intensity),
                             fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp
+                            fontSize = 13.sp
                         )
                     }
 
@@ -559,8 +588,8 @@ fun StepPainDetails(
                         valueRange = 1f..10f,
                         steps = 8,
                         colors = SliderDefaults.colors(
-                            thumbColor = ClinicalTeal,
-                            activeTrackColor = ClinicalTeal,
+                            thumbColor = getSeverityColor(intensity),
+                            activeTrackColor = getSeverityColor(intensity),
                             inactiveTrackColor = SlateBorder
                         ),
                         modifier = Modifier.padding(top = 8.dp)
@@ -571,14 +600,14 @@ fun StepPainDetails(
 
         Column {
             Text(
-                text = "Describe Symptoms & Triggers",
+                text = "Describe Your Symptoms",
                 style = MaterialTheme.typography.titleMedium,
                 color = TextTitle,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(bottom = 4.dp)
             )
             Text(
-                text = "E.g., click/locked joint, pain type (sharp, throbbing), has radiating numbness, or pain on load.",
+                text = "Include pain type, triggers, and any numbness or clicking.",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextBody,
                 modifier = Modifier.padding(bottom = 8.dp)
@@ -591,18 +620,21 @@ fun StepPainDetails(
                     .fillMaxWidth()
                     .height(140.dp)
                     .testTag("pain_description_input"),
-                placeholder = { Text("E.g., My shoulder clicks and pinches when raising my arm above shoulder level. Started after tennis on Tuesday. Mild radiating pins and needles down the arm.", color = TextBody) },
+                placeholder = { Text("E.g., My shoulder clicks and pinches when raising my arm above shoulder level...", color = TextMuted) },
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = ClinicalTeal,
                     unfocusedBorderColor = SlateBorder,
                     focusedTextColor = TextTitle,
-                    unfocusedTextColor = TextTitle
+                    unfocusedTextColor = TextTitle,
+                    cursorColor = ClinicalTeal,
+                    focusedContainerColor = SlateCard,
+                    unfocusedContainerColor = SlateCard
                 ),
-                shape = RoundedCornerShape(10.dp)
+                shape = RoundedCornerShape(12.dp)
             )
         }
 
-        // Triage warnings card (Real-time deterministi feedback)
+        // Triage warnings
         val ev = triage
         if (ev != null) {
             AnimatedVisibility(visible = true) {
@@ -612,11 +644,18 @@ fun StepPainDetails(
                     TriageStatus.PROCEED_WITH_CAUTION -> AmberWarning
                     else -> GreenSuccess
                 }
+                val surfaceColor = when (ev.status) {
+                    TriageStatus.SEEK_EMERGENCY -> CoralAlarmSurface
+                    TriageStatus.SEEK_PHYSICIAN -> AmberWarningSurface
+                    TriageStatus.PROCEED_WITH_CAUTION -> AmberWarningSurface
+                    else -> GreenSuccessSurface
+                }
 
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = bannerColor.copy(alpha = 0.15f)),
-                    border = BorderStroke(1.dp, bannerColor)
+                    colors = CardDefaults.cardColors(containerColor = surfaceColor),
+                    border = BorderStroke(1.dp, bannerColor.copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
                     Row(
                         modifier = Modifier.padding(16.dp),
@@ -693,24 +732,24 @@ fun StepRangeOfMotion(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text(
-            text = "AI Range of Motion Scan",
+            text = "Range of Motion Scan",
             style = MaterialTheme.typography.headlineSmall,
             color = TextTitle,
             fontWeight = FontWeight.Bold
         )
 
         Text(
-            text = "Uploading a photo or using the interactive scanner of your joint flexion assists the clinical model in mapping rotational restrictions.",
+            text = "Select the movement to record and set your target flexion angle.",
             style = MaterialTheme.typography.bodyMedium,
             color = TextBody
         )
 
-        // AI Joint Motion Assessment Planner card answering the requirement
+        // Motion planner card
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = SlateCard),
             border = BorderStroke(1.dp, SlateBorder),
-            shape = RoundedCornerShape(12.dp)
+            shape = RoundedCornerShape(16.dp)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -722,57 +761,18 @@ fun StepRangeOfMotion(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "AI Motion Planner Directives",
+                        text = "Motion Assessment Setup",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = TextTitle
                     )
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // The AI question box
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(ClinicalTeal.copy(alpha = 0.08f))
-                        .padding(12.dp)
-                ) {
-                    Column {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = "👩‍⚕️ Female AI Therapist Assistant Says:",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = ClinicalTeal
-                            )
-                            if (voiceoverEnabled) {
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "🗣️ Voice Guiding On",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MintSecondary
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "Which orthopedic joint movement should we record? And what is your target angle? Please select the movement on your screen and drag the slider. When performing the movement, satisfy the criteria by avoiding pain as much as you possibly can. Stop immediately before it becomes painful.",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = TextTitle,
-                            lineHeight = 18.sp
-                        )
-                    }
-                }
-
                 Spacer(modifier = Modifier.height(16.dp))
 
                 // 1. Movement selection
                 Text(
-                    text = "1. Specific Joint Movement to Record",
+                    text = "1. Movement to Record",
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
                     color = TextTitle
@@ -789,9 +789,9 @@ fun StepRangeOfMotion(
                 ) {
                     movements.forEach { m ->
                         val isSel = selectedMovement == m || (m == "Custom" && !movements.dropLast(1).contains(selectedMovement))
-                        val chipBg = if (isSel) ClinicalTeal else SlateBg
+                        val chipBg = if (isSel) ClinicalTeal else SlateBgElevated
                         val chipBorder = if (isSel) ClinicalTeal else SlateBorder
-                        val chipText = if (isSel) Color.White else TextBody
+                        val chipText = if (isSel) TextOnAccent else TextBody
 
                         Box(
                             modifier = Modifier
@@ -819,7 +819,7 @@ fun StepRangeOfMotion(
                     }
                 }
 
-                // If Custom manual entry is selected
+                // Custom input
                 val isCustomSelected = !movements.dropLast(1).contains(selectedMovement)
                 if (isCustomSelected || selectedMovement.isEmpty()) {
                     Spacer(modifier = Modifier.height(10.dp))
@@ -829,12 +829,15 @@ fun StepRangeOfMotion(
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("custom_movement_input"),
-                        placeholder = { Text("Describe specific custom movement to perform...", color = TextBody) },
+                        placeholder = { Text("Describe custom movement...", color = TextMuted) },
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = TextTitle,
                             unfocusedTextColor = TextTitle,
                             focusedBorderColor = ClinicalTeal,
-                            unfocusedBorderColor = SlateBorder
+                            unfocusedBorderColor = SlateBorder,
+                            cursorColor = ClinicalTeal,
+                            focusedContainerColor = SlateCard,
+                            unfocusedContainerColor = SlateCard
                         ),
                         singleLine = true,
                         shape = RoundedCornerShape(8.dp)
@@ -843,14 +846,14 @@ fun StepRangeOfMotion(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // 2. Select angle target limit
+                // 2. Angle target
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "2. Target Flexion Angle Limit",
+                        text = "2. Target Flexion Angle",
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Bold,
                         color = TextTitle
@@ -859,7 +862,7 @@ fun StepRangeOfMotion(
                         text = "$targetAngle°",
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Bold,
-                        color = ClinicalTeal
+                        color = ClinicalTealLight
                     )
                 }
                 Spacer(modifier = Modifier.height(4.dp))
@@ -879,10 +882,10 @@ fun StepRangeOfMotion(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // 3. Safety Check pledge
+                // 3. Safety pledge
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = CoralAlarm.copy(alpha = 0.08f)),
+                    colors = CardDefaults.cardColors(containerColor = CoralAlarmSurface),
                     border = BorderStroke(1.dp, CoralAlarm.copy(alpha = 0.3f)),
                     shape = RoundedCornerShape(8.dp)
                 ) {
@@ -892,7 +895,7 @@ fun StepRangeOfMotion(
                             .clickable { 
                                 onAvoidPainCheckedChange(!avoidPainChecked)
                                 if (!avoidPainChecked) {
-                                    ttsState.speak("Safety pledge accepted: You will strictly avoid pain during movement.")
+                                    ttsState.speak("Safety pledge accepted.")
                                 }
                             }
                             .padding(12.dp),
@@ -903,7 +906,7 @@ fun StepRangeOfMotion(
                             onCheckedChange = { 
                                 onAvoidPainCheckedChange(it) 
                                 if (it) {
-                                    ttsState.speak("Safety pledge accepted: You will strictly avoid pain.")
+                                    ttsState.speak("Safety pledge accepted.")
                                 }
                             },
                             colors = CheckboxDefaults.colors(
@@ -915,14 +918,14 @@ fun StepRangeOfMotion(
                         Spacer(modifier = Modifier.width(8.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "⚠️ Clinician Safety Rule Verification",
+                                text = "⚠️ Safety Verification",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = CoralAlarm
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "I verify that I will perform this flexion or extension slowly, resolving to avoid pain as much as I possibly can without letting the motion become painful.",
+                                text = "I will perform this movement slowly and stop before it becomes painful.",
                                 fontSize = 11.sp,
                                 color = TextBody,
                                 lineHeight = 15.sp
@@ -933,15 +936,16 @@ fun StepRangeOfMotion(
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
-        // Capture placeholder or joint visual display
+        // Camera simulation card
         Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(200.dp),
             colors = CardDefaults.cardColors(containerColor = SlateCard),
-            border = BorderStroke(1.dp, SlateBorder)
+            border = BorderStroke(1.dp, SlateBorder),
+            shape = RoundedCornerShape(16.dp)
         ) {
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -952,7 +956,7 @@ fun StepRangeOfMotion(
                         Icon(
                             imageVector = Icons.Default.PhotoCamera,
                             contentDescription = "Camera",
-                            tint = if (avoidPainChecked) TextBody else TextBody.copy(alpha = 0.4f),
+                            tint = if (avoidPainChecked) TextBody else TextMuted,
                             modifier = Modifier.size(44.dp)
                         )
                         Spacer(modifier = Modifier.height(12.dp))
@@ -961,19 +965,19 @@ fun StepRangeOfMotion(
                             enabled = avoidPainChecked,
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = ClinicalTeal,
-                                contentColor = Color.White,
-                                disabledContainerColor = SlateBorder.copy(alpha = 0.5f),
-                                disabledContentColor = TextBody.copy(alpha = 0.5f)
+                                contentColor = TextOnAccent,
+                                disabledContainerColor = SlateBorder,
+                                disabledContentColor = TextMuted
                             ),
-                            shape = RoundedCornerShape(8.dp),
+                            shape = RoundedCornerShape(10.dp),
                             modifier = Modifier.testTag("simulate_camera_button")
                         ) {
-                            Text("Simulate Joint Camera")
+                            Text("Simulate Joint Camera", fontWeight = FontWeight.SemiBold)
                         }
                         if (!avoidPainChecked) {
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = "Acknowledge Safety Rule to Enable Camera",
+                                text = "Accept safety rule to enable camera",
                                 fontSize = 11.sp,
                                 color = CoralAlarm,
                                 fontWeight = FontWeight.Medium
@@ -990,7 +994,7 @@ fun StepRangeOfMotion(
             }
         }
 
-        // Active loading indicator
+        // Analysis loading
         if (isAnalyzing) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
@@ -999,27 +1003,28 @@ fun StepRangeOfMotion(
             ) {
                 CircularProgressIndicator(color = ClinicalTeal, modifier = Modifier.size(20.dp))
                 Spacer(modifier = Modifier.width(12.dp))
-                Text("Analyzing joint range of motion with clinical model...", color = ClinicalTeal)
+                Text("Analyzing range of motion...", color = ClinicalTeal, fontSize = 13.sp)
             }
         }
 
-        // ML Angle measurement HUD
+        // ROM results
         val analysis = romAnalysis
         if (analysis != null) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = SlateCard),
-                border = BorderStroke(1.dp, ClinicalTeal)
+                border = BorderStroke(1.dp, ClinicalTeal.copy(alpha = 0.4f)),
+                shape = RoundedCornerShape(16.dp)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        text = "VLM Vision Scanner Findings",
-                        color = MintSecondary,
+                        text = "Vision Scanner Results",
+                        color = ClinicalTeal,
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.titleMedium
                     )
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -1036,11 +1041,11 @@ fun StepRangeOfMotion(
                         }
 
                         Column(horizontalAlignment = Alignment.End) {
-                            Text("Restriction Class", style = MaterialTheme.typography.bodySmall, color = TextBody)
+                            Text("Restriction", style = MaterialTheme.typography.bodySmall, color = TextBody)
                             Spacer(modifier = Modifier.height(4.dp))
                             Surface(
-                                shape = RoundedCornerShape(4.dp),
-                                color = if (analysis.restrictionLevel == "None") Color(0x1B10B981) else Color(0x1BF59E0B)
+                                shape = RoundedCornerShape(6.dp),
+                                color = if (analysis.restrictionLevel == "None") GreenSuccessSurface else AmberWarningSurface
                             ) {
                                 Text(
                                     text = analysis.restrictionLevel.uppercase(),
@@ -1053,25 +1058,25 @@ fun StepRangeOfMotion(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
                     Text(
                         text = analysis.analysisFeedback,
                         style = MaterialTheme.typography.bodySmall,
                         color = TextBody,
-                        lineHeight = 16.sp
+                        lineHeight = 18.sp
                     )
                 }
             }
         }
 
-        // Intake Consent Footer
+        // Disclaimer
         Text(
-            text = "Disclaimer: Physical exercise programs provided are designed by AI models based on established guidelines. Workouts are reviewed by human specialists, but do not replace specialized individual in-person medical counsel if pain exacerbates.",
+            text = "Disclaimer: Programs are generated by AI and reviewed by specialists. They do not replace in-person medical counsel.",
             style = MaterialTheme.typography.bodySmall,
-            color = TextBody,
+            color = TextMuted,
             fontSize = 11.sp,
             textAlign = TextAlign.Justify,
-            modifier = Modifier.padding(top = 12.dp, bottom = 24.dp)
+            modifier = Modifier.padding(top = 8.dp, bottom = 24.dp)
         )
     }
 }
@@ -1094,10 +1099,10 @@ private fun getAreaIcon(area: BodyArea): ImageVector {
 private fun getSeverityLabel(intensity: Int): String {
     return when (intensity) {
         0 -> "No Pain"
-        in 1..3 -> "Mild Sorenss (Safe)"
-        in 4..6 -> "Moderate Pinch (Trigger Zones)"
-        in 7..9 -> "Severe / Shooting (Orthopedic)"
-        else -> "Medical Emergency Warn"
+        in 1..3 -> "Mild"
+        in 4..6 -> "Moderate"
+        in 7..9 -> "Severe"
+        else -> "Emergency"
     }
 }
 
@@ -1110,15 +1115,14 @@ private fun getSeverityColor(intensity: Int): Color {
 }
 
 /**
- * Creates a beautiful generated vector visual of joint and angles using custom canvas
- * so we avoid needing static heavy image resource imports!
+ * Creates a simulated joint visualization using custom canvas.
  */
 private fun createSimulatedJointJointBitmap(area: BodyArea): Bitmap {
     val size = 512
     val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
     
-    // Draw background
+    // Draw dark background
     canvas.drawColor(SlateCard.toArgb())
 
     val paint = Paint().apply {
@@ -1127,17 +1131,17 @@ private fun createSimulatedJointJointBitmap(area: BodyArea): Bitmap {
         style = Paint.Style.STROKE
     }
 
-    // Draw coordinate dots grid behind
+    // Draw coordinate grid
     val gridPaint = Paint().apply {
-        color = Color(0x1B000000).toArgb()
-        strokeWidth = 2f
+        color = Color(0x15FFFFFF).toArgb()
+        strokeWidth = 1f
     }
     for (i in 0..size step 40) {
         canvas.drawLine(i.toFloat(), 0f, i.toFloat(), size.toFloat(), gridPaint)
         canvas.drawLine(0f, i.toFloat(), size.toFloat(), i.toFloat(), gridPaint)
     }
 
-    // Draw stylized joint limbs representing range of motion flexion
+    // Draw joint limbs
     val bonePaint = Paint().apply {
         color = TextTitle.toArgb()
         strokeWidth = 14f
@@ -1152,29 +1156,23 @@ private fun createSimulatedJointJointBitmap(area: BodyArea): Bitmap {
     }
 
     val textPaint = Paint().apply {
-        color = MintSecondary.toArgb()
+        color = ClinicalTealLight.toArgb()
         textSize = 34f
         isAntiAlias = true
         typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
     }
 
-    // Draw anatomical bone linkages based on area
     when (area) {
         BodyArea.KNEE -> {
-            // Hip anchor to Knee joint to Foot ankle
-            canvas.drawLine(150f, 120f, 260f, 260f, bonePaint) // Femur
-            canvas.drawLine(260f, 260f, 170f, 380f, bonePaint) // Tibia
-            
-            // Draw joint rotation arc
+            canvas.drawLine(150f, 120f, 260f, 260f, bonePaint)
+            canvas.drawLine(260f, 260f, 170f, 380f, bonePaint)
             canvas.drawCircle(260f, 260f, 18f, Paint().apply { color = ClinicalTeal.toArgb() })
             canvas.drawArc(220f, 220f, 300f, 300f, 35f, 110f, false, accentPaint)
             canvas.drawText("ROM: 105°", 280f, 230f, textPaint)
         }
         BodyArea.SHOULDER -> {
-            // Torso spinal to shoulder rotator to wrist end
-            canvas.drawLine(200f, 320f, 260f, 220f, bonePaint) // Humeral
-            canvas.drawLine(260f, 220f, 380f, 240f, bonePaint) // Arm extended
-            
+            canvas.drawLine(200f, 320f, 260f, 220f, bonePaint)
+            canvas.drawLine(260f, 220f, 380f, 240f, bonePaint)
             canvas.drawCircle(260f, 220f, 18f, Paint().apply { color = ClinicalTeal.toArgb() })
             canvas.drawArc(220f, 180f, 300f, 260f, 0f, 90f, false, accentPaint)
             canvas.drawText("ROM: 98°", 220f, 140f, textPaint)
@@ -1182,7 +1180,6 @@ private fun createSimulatedJointJointBitmap(area: BodyArea): Bitmap {
         else -> {
             canvas.drawLine(160f, 256f, 256f, 256f, bonePaint)
             canvas.drawLine(256f, 256f, 330f, 180f, bonePaint)
-            
             canvas.drawCircle(256f, 256f, 18f, Paint().apply { color = ClinicalTeal.toArgb() })
             canvas.drawText("ROM: 135°", 280f, 220f, textPaint)
         }

@@ -12,7 +12,7 @@ import com.example.data.model.Converters
 
 @Database(
     entities = [UserAssessment::class, ExerciseProgram::class, ExerciseProgress::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

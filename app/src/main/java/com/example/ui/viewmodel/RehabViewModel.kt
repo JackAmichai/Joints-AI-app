@@ -7,6 +7,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.data.api.ChatMessage
 import com.example.data.api.GeminiApiClient
 import com.example.data.api.JointAnalysisResponse
 import com.example.data.api.VideoAnalysisResponse
@@ -88,72 +89,15 @@ class RehabViewModel(
     private val _activeProgram = MutableStateFlow<ExerciseProgram?>(null)
     val activeProgram: StateFlow<ExerciseProgram?> = _activeProgram.asStateFlow()
 
-    // --- Dynamic Patient QA Chat Rooms (Answering the functional recommendation) ---
-    private val _chatMessages = MutableStateFlow<List<ChatMessage>>(
-        listOf(
-            ChatMessage("AI", "Hello! I am your clinical Joints AI Companion. How is your joint feeling today? You can ask me custom guidance, safety checks, or exercise posture questions!")
-        )
-    )
+    // --- AI Chat / QA State ---
+    private val _chatMessages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val chatMessages: StateFlow<List<ChatMessage>> = _chatMessages.asStateFlow()
 
-    private val _isSendingMessage = MutableStateFlow(false)
-    val isSendingMessage: StateFlow<Boolean> = _isSendingMessage.asStateFlow()
+    private val _isSendingChat = MutableStateFlow(false)
+    val isSendingChat: StateFlow<Boolean> = _isSendingChat.asStateFlow()
 
     private val _chatError = MutableStateFlow<String?>(null)
     val chatError: StateFlow<String?> = _chatError.asStateFlow()
-
-    fun sendChatMessage(text: String) {
-        if (text.isBlank()) return
-        val userMsg = ChatMessage("USER", text)
-        _chatMessages.value = _chatMessages.value + userMsg
-        _isSendingMessage.value = true
-        _chatError.value = null
-
-        val active = _activeProgram.value
-        val title = active?.title ?: "Home Physical Therapy Schedule"
-        val bodyAreaName = active?.bodyArea ?: "Joint"
-        val exercisesSummary = active?.exercises?.joinToString("\n") { 
-            "- ${it.title}: ${it.sets}x${it.reps}. ${it.description}"
-        } ?: "No active exercises"
-        val clinicianGuideline = active?.therapistNotes ?: "Perform slowly up to limits of comfort."
-
-        // Convert messages to Content parts for direct REST service request
-        val chatHistory = _chatMessages.value.map { msg ->
-            com.example.data.api.Content(
-                parts = listOf(com.example.data.api.Part(text = msg.text)),
-                role = if (msg.sender == "USER") "user" else "model"
-            )
-        }
-
-        viewModelScope.launch {
-            try {
-                val response = GeminiApiClient.askQuestion(
-                    programTitle = title,
-                    bodyArea = bodyAreaName,
-                    exercisesSummary = exercisesSummary,
-                    clinicianGuideline = clinicianGuideline,
-                    chatHistory = chatHistory
-                )
-                if (response != null) {
-                    _chatMessages.value = _chatMessages.value + ChatMessage("AI", response)
-                } else {
-                    _chatError.value = "Failed to contact clinician AI. Please check your network connection."
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Chat room pipeline failed", e)
-                _chatError.value = "Error: ${e.localizedMessage}"
-            } finally {
-                _isSendingMessage.value = false
-            }
-        }
-    }
-
-    fun clearChat() {
-        _chatMessages.value = listOf(
-            ChatMessage("AI", "Hello! I am your clinical Joints AI Companion. How is your joint feeling today? You can ask me custom guidance, safety checks, or exercise posture questions!")
-        )
-        _chatError.value = null
-    }
 
     init {
         // Automatically check active programs when programs update
@@ -246,10 +190,89 @@ class RehabViewModel(
         _isAnalyzingVideo.value = false
     }
 
+    // --- AI Chat / QA Methods ---
+
+    /**
+     * Send a chat message to the AI assistant.
+     * Builds context from the active program for relevant answers.
+     */
+    fun sendChatMessage(userMessage: String) {
+        if (userMessage.isBlank()) return
+
+        _chatError.value = null
+        _isSendingChat.value = true
+
+        // Add user message to the list immediately
+        val userMsg = ChatMessage(role = "user", text = userMessage)
+        _chatMessages.value = _chatMessages.value + userMsg
+
+        // Build program context string
+        val programContext = buildProgramContext()
+
+        viewModelScope.launch {
+            try {
+                val response = GeminiApiClient.sendChatMessage(
+                    userMessage = userMessage,
+                    conversationHistory = _chatMessages.value.dropLast(1), // Exclude the message we just added
+                    programContext = programContext
+                )
+
+                val aiMsg = ChatMessage(role = "model", text = response)
+                _chatMessages.value = _chatMessages.value + aiMsg
+            } catch (e: Exception) {
+                Log.e(TAG, "Error sending chat message", e)
+                _chatError.value = "Failed to get a response. Please try again."
+                val errorMsg = ChatMessage(
+                    role = "model",
+                    text = "I'm sorry, I encountered an error processing your request. Please try again or contact your clinician directly."
+                )
+                _chatMessages.value = _chatMessages.value + errorMsg
+            } finally {
+                _isSendingChat.value = false
+            }
+        }
+    }
+
+    /**
+     * Clear the entire chat history.
+     */
+    fun clearChat() {
+        _chatMessages.value = emptyList()
+        _chatError.value = null
+    }
+
+    /**
+     * Build a context string from the active program to give the AI relevant info.
+     */
+    private fun buildProgramContext(): String {
+        val program = _activeProgram.value ?: return "No active program found."
+        val exerciseList = program.exercises.joinToString("\n") { ex ->
+            "- ${ex.title}: ${ex.sets} sets × ${ex.reps} reps, targeting ${ex.targetMuscle}. ${ex.description}"
+        }
+        val conditionInfo = if (program.conditionName != null) {
+            "\nDiagnosed Condition: ${program.conditionName} (Confidence: ${program.conditionConfidence ?: 0}%)" +
+            "\nCondition Details: ${program.conditionExplanation ?: "N/A"}"
+        } else ""
+        return """
+            Program: ${program.title}
+            Body Area: ${program.bodyArea}
+            Status: ${program.clinicianStatus}
+            Therapist: ${program.therapistName ?: "Pending review"}
+            Therapist Notes: ${program.therapistNotes ?: "None"}$conditionInfo
+            Exercises:
+            $exerciseList
+        """.trimIndent()
+    }
+
     /**
      * Submits assessment to the local DB and triggers a background generative action.
+     * Now also persists the selected movement, target angle, and AI-diagnosed condition.
      */
-    fun submitIntakeAndGeneratePlan(onComplete: (Long) -> Unit) {
+    fun submitIntakeAndGeneratePlan(
+        selectedMovement: String = "",
+        targetAngle: Int = 90,
+        onComplete: (Long) -> Unit
+    ) {
         val area = _selectedBodyArea.value ?: BodyArea.KNEE
         val currentTriage = _triageEvaluation.value ?: TriageHelper.evaluateTriage(_painDescription.value)
 
@@ -260,7 +283,9 @@ class RehabViewModel(
             rangeOfMotionQuestionChecked = _rangeOfMotionQuestionChecked.value,
             triageStatus = currentTriage.status.name,
             triageReason = currentTriage.reason,
-            scanAngleResult = _romAnalysisResult.value?.estimatedAngle
+            scanAngleResult = _romAnalysisResult.value?.estimatedAngle,
+            selectedMovement = selectedMovement.ifBlank { null },
+            targetAngle = if (targetAngle > 0) targetAngle else null
         )
 
         _isGeneratingPlan.value = true
@@ -285,9 +310,6 @@ class RehabViewModel(
                 )
 
                 if (response != null) {
-                    // 4. Save generated plan to database.
-                    // By default, in Joints.AI, plans must undergo clinical human oversight. 
-                    // So we initialize as "PENDING" review status.
                     val hasCautionFlags = currentTriage.status == TriageStatus.PROCEED_WITH_CAUTION
                     val clinicianStatus = "PENDING"
 
@@ -297,6 +319,9 @@ class RehabViewModel(
                         title = response.title,
                         clinicianStatus = clinicianStatus,
                         exercises = response.exercises,
+                        conditionName = response.conditionName,
+                        conditionConfidence = response.conditionConfidence,
+                        conditionExplanation = response.conditionExplanation,
                         therapistNotes = "Pre-loaded guidance: ${response.clinicianGuideline}" + 
                             if (hasCautionFlags) "\n[ALERT-CAUTION]: Checked by safety flag due to symptoms description." else ""
                     )
@@ -381,10 +406,3 @@ class RehabViewModelFactory(
         throw IllegalArgumentException("Unknown ViewModel class")
     }
 }
-
-// Model for storing QA conversation history
-data class ChatMessage(
-    val sender: String, // "USER" or "AI"
-    val text: String,
-    val timestamp: Long = System.currentTimeMillis()
-)
